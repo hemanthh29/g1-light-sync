@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import ast
+import ctypes
+import fcntl
 import json
 import math
 import os
 import signal
 import queue
 import shutil
+import socket
 import subprocess
 import sys
 import threading
@@ -25,6 +28,9 @@ CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) /
 CONFIG = CONFIG_HOME / "mitsuko_g1.json"
 GUI_CONFIG = CONFIG_HOME / "mitsuko_g1_gui.json"
 PHONE_PAIRING = CONFIG_HOME / "phone_pairing.json"
+RUNTIME_HOME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp/mitsuko-g1-{os.getuid()}"))
+INSTANCE_SOCKET = RUNTIME_HOME / "mitsuko-g1.sock"
+INSTANCE_LOCK = RUNTIME_HOME / "mitsuko-g1.lock"
 CONFIG_HOME.mkdir(parents=True, exist_ok=True)
 for target, legacy in ((CONFIG, ROOT / "mitsuko_g1.json"), (GUI_CONFIG, ROOT / "mitsuko_g1_gui.json")):
     if not target.exists() and legacy.exists():
@@ -43,6 +49,24 @@ GREEN = "#46d6aa"
 RED = "#ff8a70"
 BORDER = "#263b33"
 FONT = "Noto Sans"
+
+
+def _claim_single_instance():
+    RUNTIME_HOME.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock_file = INSTANCE_LOCK.open("a+")
+    try:
+        fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        lock_file.close()
+        with socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM) as activation_socket:
+            for _attempt in range(40):
+                try:
+                    activation_socket.sendto(b"activate", str(INSTANCE_SOCKET))
+                    break
+                except OSError:
+                    time.sleep(0.05)
+        return None
+    return lock_file
 
 
 def rounded_points(x1, y1, x2, y2, radius):
@@ -169,8 +193,11 @@ def read_led_count() -> int:
 
 
 class App(tk.Tk):
-    def __init__(self):
+    def __init__(self, instance_lock):
         super().__init__()
+        self._instance_lock = instance_lock
+        self._instance_socket = None
+        self._set_window_class()
         # Keep Tk's point-sized fonts proportional to the selected 1220px mockup
         # on high-DPI 4K desktops where the system default is visibly oversized.
         self.tk.call("tk", "scaling", 1.0)
@@ -198,6 +225,7 @@ class App(tk.Tk):
         self.nav_buttons = {}
         self.pages = {}
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self._start_instance_listener()
         self.notification_monitor = None
         self.notification_flash_running = False
         self.pending_device_effect = None
@@ -229,6 +257,51 @@ class App(tk.Tk):
         self.after(600, self.refresh_diagnostics)
         self.protocol("WM_DELETE_WINDOW", self._close_to_tray)
         self.bind_all("<Control-q>", lambda _event: self._on_close())
+
+    def _set_window_class(self):
+        try:
+            if self.tk.call("tk", "windowingsystem") != "x11":
+                return
+            x11 = ctypes.CDLL("libX11.so.6")
+            x11.XOpenDisplay.restype = ctypes.c_void_p
+            x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XSetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+            x11.XFlush.argtypes = [ctypes.c_void_p]
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+
+            class XClassHint(ctypes.Structure):
+                _fields_ = [("res_name", ctypes.c_char_p), ("res_class", ctypes.c_char_p)]
+
+            display = x11.XOpenDisplay(None)
+            if not display:
+                return
+            hint = XClassHint(b"mitsuko-g1", b"MitsukoG1")
+            x11.XSetClassHint(display, self.winfo_id(), ctypes.byref(hint))
+            x11.XFlush(display)
+            x11.XCloseDisplay(display)
+        except (OSError, tk.TclError, AttributeError):
+            # Keep the UI usable if X11 class hints are unavailable.
+            pass
+
+    def _start_instance_listener(self):
+        try:
+            INSTANCE_SOCKET.unlink()
+        except FileNotFoundError:
+            pass
+        listener = socket.socket(socket.AF_UNIX, socket.SOCK_DGRAM)
+        listener.bind(str(INSTANCE_SOCKET))
+        os.chmod(INSTANCE_SOCKET, 0o600)
+        self._instance_socket = listener
+
+        def receive_activation():
+            while True:
+                try:
+                    listener.recvfrom(64)
+                except OSError:
+                    return
+                self.messages.put(("activate", ""))
+
+        threading.Thread(target=receive_activation, daemon=True).start()
 
     def _style(self):
         style = ttk.Style(self)
@@ -833,7 +906,23 @@ class App(tk.Tk):
         self._software_effect_group(software)
 
     def _build_controls_page(self, page):
-        self._page_heading(page, "Quick controls", "Set a steady color, adjust brightness, or switch the strip off.")
+        self._page_heading(page, "Quick controls", "Set a steady color, adjust brightness, power, and notification flash.")
+        notification = self._card(page, padding=14)
+        notification.pack(fill="x", pady=(0, 12))
+        notification_header = ttk.Frame(notification, style="Card.TFrame")
+        notification_header.pack(fill="x")
+        ttk.Label(notification_header, text="NOTIFICATION FLASH", style="Muted.Card.TLabel").pack(side="left")
+        self.notification_toggle = ttk.Checkbutton(
+            notification_header, text="Enable flash", variable=self.notification_flash_enabled,
+            command=self._toggle_notification_flash)
+        self.notification_toggle.pack(side="right")
+        ttk.Label(notification,
+                  text="Briefly flash the selected palette color when a desktop notification arrives.",
+                  style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(7, 3))
+        ttk.Label(notification,
+                  text="Runs only in a known steady state. Apply a color or built-in effect first; screen, music, and app effects are left alone.",
+                  style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
+
         color_card = self._card(page, padding=17)
         color_card.pack(fill="x", pady=(0, 12))
         ttk.Label(color_card, text="COLOR", style="Muted.Card.TLabel").pack(anchor="w")
@@ -889,21 +978,6 @@ class App(tk.Tk):
         self.off_btn = RoundedButton(power, text="Turn LEDs off", style="Stop.TButton", command=self.turn_off)
         self.off_btn.pack(anchor="w")
         self.manual_widgets.append(self.off_btn)
-
-        notification = self._card(page, padding=17)
-        notification.pack(fill="x", pady=(12, 0))
-        notification_header = ttk.Frame(notification, style="Card.TFrame")
-        notification_header.pack(fill="x")
-        ttk.Label(notification_header, text="NOTIFICATION FLASH", style="Muted.Card.TLabel").pack(side="left")
-        self.notification_toggle = ttk.Checkbutton(
-            notification_header, text="Enable", variable=self.notification_flash_enabled,
-            command=self._toggle_notification_flash)
-        self.notification_toggle.pack(side="right")
-        ttk.Label(notification, text="Briefly flash the current palette color when a desktop notification arrives.",
-                  style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(8, 5))
-        ttk.Label(notification,
-                  text="Only runs while the strip is in a known steady state; screen, music, and app effects are left alone. Notification text is not saved.",
-                  style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
 
     def _slider(self, parent, label, var, value_var, low, high, column):
         frame = ttk.Frame(parent, style="Card.TFrame")
@@ -997,7 +1071,9 @@ class App(tk.Tk):
         try:
             while True:
                 kind, payload = self.messages.get_nowait()
-                if kind == "notification":
+                if kind == "activate":
+                    self._restore_from_tray()
+                elif kind == "notification":
                     self._notification_flash()
                 elif kind == "notification_monitor_error":
                     self.notification_monitor = None
@@ -1550,6 +1626,28 @@ class App(tk.Tk):
         self.lift()
         self.focus_force()
 
+    def destroy(self):
+        listener = getattr(self, "_instance_socket", None)
+        self._instance_socket = None
+        if listener is not None:
+            try:
+                listener.close()
+            except OSError:
+                pass
+            try:
+                INSTANCE_SOCKET.unlink()
+            except FileNotFoundError:
+                pass
+        lock_file = getattr(self, "_instance_lock", None)
+        self._instance_lock = None
+        if lock_file is not None:
+            try:
+                fcntl.flock(lock_file.fileno(), fcntl.LOCK_UN)
+                lock_file.close()
+            except OSError:
+                pass
+        super().destroy()
+
     def _on_close(self):
         external_pid = self._external_sync_pid()
         if self.proc is not None or external_pid is not None:
@@ -1567,4 +1665,6 @@ class App(tk.Tk):
 
 
 if __name__ == "__main__":
-    App().mainloop()
+    lock_file = _claim_single_instance()
+    if lock_file is not None:
+        App(lock_file).mainloop()
