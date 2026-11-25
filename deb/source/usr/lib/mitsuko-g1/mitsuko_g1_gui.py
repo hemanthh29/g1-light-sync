@@ -195,9 +195,9 @@ def read_led_count() -> int:
 class App(tk.Tk):
     def __init__(self, instance_lock):
         super().__init__()
+        self.withdraw()
         self._instance_lock = instance_lock
         self._instance_socket = None
-        self._set_window_class()
         # Keep Tk's point-sized fonts proportional to the selected 1220px mockup
         # on high-DPI 4K desktops where the system default is visibly oversized.
         self.tk.call("tk", "scaling", 1.0)
@@ -257,6 +257,9 @@ class App(tk.Tk):
         self.after(600, self.refresh_diagnostics)
         self.protocol("WM_DELETE_WINDOW", self._close_to_tray)
         self.bind_all("<Control-q>", lambda _event: self._on_close())
+        self.update_idletasks()
+        self._set_window_class()
+        self.deiconify()
 
     def _set_window_class(self):
         try:
