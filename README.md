@@ -80,7 +80,7 @@ The relay sends control commands to the Linux app; the Linux host continues to h
 ├── ios/                          Xcode / SwiftUI companion project
 │   ├── MitsukoG1/                App, UI, Bonjour discovery, and Siri Shortcuts
 │   └── MitsukoG1.xcodeproj/      iOS project settings
-└── .github/workflows/            Manual unsigned iOS build workflow
+└── .github/workflows/            Manual Android APK and unsigned iOS build workflows
 ```
 
 Each platform has its own source folder and its own release. APK, IPA, and DEB files are release assets rather than bundled together in one download.
