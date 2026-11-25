@@ -435,6 +435,7 @@ class App(tk.Tk):
         self.nav_buttons = {}
         self.pages = {}
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.effects_solid_swatches = []
         self._start_instance_listener()
         self.notification_monitor = None
         self.notification_flash_running = False
@@ -1415,7 +1416,15 @@ class App(tk.Tk):
         if color_swatch is not None and color_swatch.winfo_exists():
             color_swatch.delete("all")
             color_swatch.create_oval(3, 3, 25, 25, fill=color, outline=ACCENT, width=2)
+        solid_value = getattr(self, "effects_solid_color_value", None)
+        if solid_value is not None:
+            solid_value.set(color.upper())
+        solid_preview = getattr(self, "effects_solid_color_preview", None)
+        if solid_preview is not None and solid_preview.winfo_exists():
+            solid_preview.delete("all")
+            solid_preview.create_oval(3, 3, 25, 25, fill=color, outline=ACCENT, width=2)
         self._refresh_palette_swatches()
+        self._refresh_effects_solid_swatches()
         try:
             settings = json.loads(CONFIG.read_text())
         except (OSError, ValueError):
@@ -1429,6 +1438,25 @@ class App(tk.Tk):
     def select_palette_color(self, color):
         self._set_color_preview(color)
         self.set_color()
+
+    def _refresh_effects_solid_swatches(self):
+        selected = self.color.lower()
+        for swatch in self.effects_solid_swatches:
+            if not swatch.winfo_exists():
+                continue
+            swatch.delete("all")
+            color = swatch.solid_color
+            swatch.create_oval(4, 4, 32, 32, fill=color,
+                               outline=ACCENT if color.lower() == selected else BORDER,
+                               width=3 if color.lower() == selected else 1)
+
+    def _choose_effects_solid_color(self):
+        self.choose_color(
+            initial_color=self.color,
+            action_label="Use this color",
+            subtitle="Choose the solid color to apply to the light strip.",
+            on_select=self._set_color_preview,
+        )
 
     def _build_screen_page(self, page):
         self._page_heading(page, "Screen sync", "Map monitor-edge colors to the LED strip.")
@@ -1501,9 +1529,45 @@ class App(tk.Tk):
         ttk.Separator(device).pack(fill="x", pady=16)
         self._effect_group(device, "Pickup · sound reactive, built in", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
         software = self._card(page, padding=16)
-        software.pack(fill="x")
+        software.pack(fill="x", pady=(0, GAP))
         ttk.Label(software, text="APP EFFECTS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
         self._software_effect_group(software)
+
+        solid = self._card(page, padding=16)
+        solid.pack(fill="x")
+        ttk.Label(solid, text="SOLID COLOR", style="Muted.Card.TLabel").pack(anchor="w")
+        ttk.Label(solid, text="Choose and apply a steady color to the strip.",
+                  style="Section.TLabel").pack(anchor="w", pady=(4, 12))
+        color_row = ttk.Frame(solid, style="Card.TFrame")
+        color_row.pack(fill="x")
+        self.effects_solid_swatches = []
+        for label, color in (("Mint", "#46D6AA"), ("Blue", "#7EA7FF"),
+                             ("Violet", "#C49BFF"), ("Coral", "#FF8A70"),
+                             ("Amber", "#FFD36D"), ("Soft white", "#F4F4F0")):
+            swatch = tk.Canvas(color_row, width=36, height=36, bg=PANEL,
+                               highlightthickness=0, cursor="hand2")
+            swatch.pack(side="left", padx=(0, 8))
+            swatch.bind("<Button-1>", lambda _event, value=color: self._set_color_preview(value))
+            swatch.solid_color = color
+            self.effects_solid_swatches.append(swatch)
+            self.manual_widgets.append(swatch)
+        self._refresh_effects_solid_swatches()
+        self.effects_solid_color_btn = RoundedButton(
+            color_row, text="Choose color…", command=self._choose_effects_solid_color)
+        self.effects_solid_color_btn.pack(side="left", padx=(4, 10))
+        self.manual_widgets.append(self.effects_solid_color_btn)
+        self.effects_solid_color_preview = tk.Canvas(
+            color_row, width=28, height=28, bg=PANEL, highlightthickness=0)
+        self.effects_solid_color_preview.pack(side="left", padx=(2, 8))
+        self.effects_solid_color_preview.create_oval(3, 3, 25, 25,
+                                                     fill=self.color, outline=ACCENT, width=2)
+        self.effects_solid_color_value = tk.StringVar(value=self.color.upper())
+        ttk.Label(color_row, textvariable=self.effects_solid_color_value,
+                  style="Card.TLabel").pack(side="left")
+        self.effects_apply_color_btn = RoundedButton(
+            color_row, text="Apply solid color", style="Accent.TButton", command=self.set_color)
+        self.effects_apply_color_btn.pack(side="right")
+        self.manual_widgets.append(self.effects_apply_color_btn)
 
     def _build_controls_page(self, page):
         self._page_heading(page, "Quick controls", "Adjust brightness and power, or customize notification lighting.")
