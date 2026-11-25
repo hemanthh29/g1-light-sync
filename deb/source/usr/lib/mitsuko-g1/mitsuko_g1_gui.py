@@ -775,14 +775,25 @@ class App(tk.Tk):
         GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
 
     def _notification_flash(self):
-        if (not self.notification_flash_enabled.get() or self.notification_flash_running
-                or self.proc is not None or self.pending_device_effect is not None
+        if not self.notification_flash_enabled.get():
+            return
+        if self.notification_flash_running:
+            self.details.set("Notification flash is already in progress")
+            return
+        if (self.proc is not None or self.pending_device_effect is not None
                 or self._external_sync_pid() is not None):
+            self.details.set("Notification flash skipped while another light mode is active")
             return
         restore = self.notification_restore_state
         if restore is None:
+            self.details.set("Notification received · apply a solid color or built-in effect first")
             return
         flash_rgb = tuple(int(self.color[index:index + 2], 16) for index in (1, 3, 5))
+        if restore[0] == "color":
+            restore_rgb = tuple(restore[1:])
+            distance = sum((current - saved) ** 2 for current, saved in zip(flash_rgb, restore_rgb)) ** 0.5
+            if distance < 120:
+                flash_rgb = tuple(255 - channel for channel in flash_rgb)
         flash_command = self._base_cmd() + ["color", *(str(channel) for channel in flash_rgb)]
         if restore[0] == "color":
             restore_command = self._base_cmd() + ["color", *(str(channel) for channel in restore[1:])]
@@ -792,23 +803,28 @@ class App(tk.Tk):
             restore_command = self._base_cmd() + ["off"]
         self.notification_flash_running = True
         self._set_manual_controls(False)
+        flash_hex = "#" + "".join(f"{channel:02X}" for channel in flash_rgb)
+        self.details.set(f"Notification received · flashing {flash_hex}")
 
         def worker():
             error = ""
+            restored = False
             try:
                 result = subprocess.run(flash_command, cwd=ROOT, env=self._env(),
                                          capture_output=True, text=True, timeout=5)
                 if result.returncode != 0:
                     raise RuntimeError((result.stderr or result.stdout).strip() or "Could not flash the strip.")
-                time.sleep(0.45)
+                time.sleep(0.75)
                 if self.proc is None and self._external_sync_pid() is None:
                     result = subprocess.run(restore_command, cwd=ROOT, env=self._env(),
                                             capture_output=True, text=True, timeout=5)
                     if result.returncode != 0:
                         raise RuntimeError((result.stderr or result.stdout).strip() or "Could not restore the previous light state.")
+                    restored = True
             except Exception as exc:
                 error = str(exc)
-            self.messages.put(("notification_flash_complete", error))
+            self.messages.put(("notification_flash_complete", json.dumps({
+                "error": error, "restored": restored})))
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -1628,8 +1644,16 @@ class App(tk.Tk):
                     self.notification_flash_running = False
                     if self.proc is None and self._external_sync_pid() is None and self.pending_device_effect is None:
                         self._set_manual_controls(True)
-                    if payload:
-                        self.details.set(f"Notification flash error · {payload}")
+                    try:
+                        result = json.loads(payload)
+                    except (TypeError, ValueError):
+                        result = {"error": payload, "restored": False}
+                    if result.get("error"):
+                        self.details.set(f"Notification flash error · {result['error']}")
+                    elif result.get("restored"):
+                        self.details.set("Notification flash complete · previous light state restored")
+                    else:
+                        self.details.set("Notification flash complete · live mode took control")
                 elif kind == "error":
                     self.status.set("Could not check the device")
                     self.status_dot.itemconfigure(1, fill=RED)

@@ -12,13 +12,13 @@ Mitsuko G1 controls the Phantom G1 light strip from Linux, Android, and iOS.
 
 Each platform has separate GitHub Releases with its package and SHA-256 checksum:
 
-- Linux DEB: `deb-1.0.10-26`
+- Linux DEB: `deb-1.0.10-27`
 - Android APK: `android-1.3`
 - iOS IPA: `ios-1.1-build4` (unsigned; sign/install with SideStore or another iOS sideloading workflow)
 
 ## Build versions
 
-- Debian package: 1.0.10-26
+- Debian package: 1.0.10-27
 - Android: 1.3, version code 4
 - iOS: 1.1, build 4; deployment target iOS 16+
 
