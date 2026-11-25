@@ -20,6 +20,7 @@ import threading
 import time
 import tkinter as tk
 import tkinter.font as tkfont
+import urllib.request
 from pathlib import Path
 from tkinter import messagebox, simpledialog, ttk
 
@@ -465,6 +466,7 @@ class App(tk.Tk):
         else:
             self.after(350, self.read_info)
         self.after(600, self.refresh_diagnostics)
+        self.after(900, self.refresh_host_status)
         self.protocol("WM_DELETE_WINDOW", self._close_to_tray)
         self.bind_all("<Control-q>", lambda _event: self._on_close())
         self.update_idletasks()
@@ -656,6 +658,8 @@ class App(tk.Tk):
         self.diagnostic = tk.StringVar(value="Run a connection check to see USB and capture status.")
         self.status = tk.StringVar(value="Checking for the G1…")
         self.details = tk.StringVar(value="USB device status")
+        self.connected_devices = tk.StringVar(value="Connected phones: checking…")
+        self.host_status_busy = False
         self.smooth_value = tk.StringVar(value=f"{self.smooth.get():.2f}")
         self.depth_value = tk.StringVar(value=f"{self.depth.get():.2f}")
         self.audio_sensitivity = tk.DoubleVar(value=float(settings.get("audio_sensitivity", 1.5)))
@@ -916,6 +920,7 @@ class App(tk.Tk):
         title_box.pack(side="left")
         ttk.Label(title_box, text="G1 Light Sync", style="Title.TLabel").pack(anchor="w")
         ttk.Label(title_box, text="Unofficial companion for Mitsuko Phantom G1", style="Sub.TLabel").pack(anchor="w")
+        ttk.Label(title_box, textvariable=self.connected_devices, style="Muted.Card.TLabel").pack(anchor="w", pady=(3, 0))
 
         status_box = ttk.Frame(header, style="Header.TFrame")
         status_box.pack(side="left", fill="x", expand=True, padx=(28, 12))
@@ -1777,6 +1782,78 @@ class App(tk.Tk):
                 self.messages.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
+    def refresh_host_status(self):
+        if not self.host_status_busy:
+            self.host_status_busy = True
+            threading.Thread(target=self._read_host_status, daemon=True).start()
+        self.after(2500, self.refresh_host_status)
+
+    def _read_host_status(self):
+        try:
+            with urllib.request.urlopen("http://127.0.0.1:8765/api/status", timeout=1.5) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            self.messages.put(("host_status", json.dumps(data)))
+        except Exception as exc:
+            self.messages.put(("host_status_error", str(exc)))
+        finally:
+            self.host_status_busy = False
+
+    def _apply_host_status(self, data):
+        devices = data.get("connectedDevices", [])
+        names = [str(item.get("name", "Phone")) for item in devices if isinstance(item, dict)]
+        self.connected_devices.set("Connected phones: " + (", ".join(names) if names else "none"))
+
+        connected = bool(data.get("deviceConnected"))
+        self.status.set("G1 connected" if connected else "G1 not detected")
+        self.status_dot.itemconfigure(1, fill=GREEN if connected else RED)
+
+        mode = data.get("mode", "idle")
+        light = data.get("lightState") if isinstance(data.get("lightState"), dict) else {}
+        mode_labels = {"screen": "Screen sync", "music": "Music reactive", "animate": "Lighting effect"}
+        if mode in mode_labels:
+            label = mode_labels[mode]
+            if mode == "music" and light.get("audio_mode"):
+                label = f"Music · {str(light['audio_mode']).title()}"
+            elif mode == "animate" and light.get("animation"):
+                label = str(light["animation"]).replace("_", " ").title()
+            if self.proc is None:
+                self.external_pid = self._external_sync_pid()
+                self.active_mode = label
+            self.details.set(f"{label} running · status synced from connected devices")
+            self.stop_btn.configure(state="normal", command=self.turn_off)
+            self.start_btn.configure(text="Screen sync active" if mode == "screen" else "Switch to screen sync")
+            self.music_btn.configure(text="Music reactive active" if mode == "music" else "Switch to Music reactive")
+            return
+
+        if self.proc is None:
+            self.external_pid = None
+            self.active_mode = ""
+            self.stop_btn.configure(state="disabled", command=self.turn_off)
+        self.start_btn.configure(text="Start screen sync")
+        self.music_btn.configure(text="Start music reactive")
+
+        light_mode = light.get("mode")
+        if light_mode == "off":
+            self.details.set("LEDs off")
+        elif light_mode == "solid" and isinstance(light.get("color"), list) and len(light["color"]) == 3:
+            try:
+                color = "#" + "".join(f"{max(0, min(255, int(v))):02X}" for v in light["color"])
+            except (TypeError, ValueError):
+                color = ""
+            if color:
+                suffix = f" · brightness {light['brightness']}" if isinstance(light.get("brightness"), int) else ""
+                self.details.set(f"Solid color {color}{suffix}")
+        elif light_mode == "effect":
+            effect_id = light.get("effect_id")
+            try:
+                number = int(light.get("effect_param", 0)) + 1
+            except (TypeError, ValueError):
+                number = 1
+            effect_name = "Dynamic" if effect_id == 2 else "Pickup" if effect_id == 3 else "Built-in effect"
+            self.details.set(f"{effect_name} {number} active")
+        elif light_mode == "animate":
+            self.details.set(f"{str(light.get('animation', 'Lighting effect')).replace('_', ' ').title()} active")
+
     @staticmethod
     def _usb_controller_present():
         """Check USB enumeration without opening the HID device interface."""
@@ -1839,6 +1916,13 @@ class App(tk.Tk):
                         self.details.set("Notification flash complete · previous light state restored")
                     else:
                         self.details.set("Notification flash complete · live mode took control")
+                elif kind == "host_status":
+                    try:
+                        self._apply_host_status(json.loads(payload))
+                    except (TypeError, ValueError):
+                        pass
+                elif kind == "host_status_error":
+                    self.connected_devices.set("Connected phones: relay unavailable")
                 elif kind == "usb_presence":
                     if payload == "present":
                         self.status.set("G1 connected")

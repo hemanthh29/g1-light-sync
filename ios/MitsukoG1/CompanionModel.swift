@@ -1,12 +1,14 @@
 import Foundation
 import Combine
 import Security
+import UIKit
 
 @MainActor
 final class CompanionModel: ObservableObject {
     @Published private(set) var laptopFound = false
     @Published private(set) var connected = false
     @Published private(set) var mode = "idle"
+    @Published private(set) var lightState: [String: Any] = [:]
     @Published private(set) var profiles: [String] = []
     @Published private(set) var message = "Looking for your laptop on Wi-Fi…"
     @Published private(set) var isWorking = false
@@ -16,6 +18,13 @@ final class CompanionModel: ObservableObject {
     private var baseURL: URL?
     private var token = TokenVault.read()
     private var refreshTask: Task<Void, Never>?
+    private let clientID: String = {
+        let key = "g1LightSyncClientId"
+        if let saved = UserDefaults.standard.string(forKey: key), !saved.isEmpty { return saved }
+        let generated = UUID().uuidString
+        UserDefaults.standard.set(generated, forKey: key)
+        return generated
+    }()
 
     var needsPairing: Bool { token == nil }
 
@@ -56,6 +65,7 @@ final class CompanionModel: ObservableObject {
             let status = try await request(path: "/api/status", base: baseURL, bearer: savedToken)
             connected = true
             mode = status["mode"] as? String ?? "idle"
+            lightState = status["lightState"] as? [String: Any] ?? [:]
             message = (status["deviceConnected"] as? Bool == true)
                 ? "Laptop connected · G1 detected"
                 : "Laptop connected · G1 not detected"
@@ -125,6 +135,9 @@ final class CompanionModel: ObservableObject {
         var request = URLRequest(url: url, timeoutInterval: 5)
         request.httpMethod = body == nil ? "GET" : "POST"
         if let bearer { request.setValue("Bearer \(bearer)", forHTTPHeaderField: "Authorization") }
+        request.setValue(clientID, forHTTPHeaderField: "X-G1-Client-Id")
+        request.setValue(UIDevice.current.name.isEmpty ? "iPhone" : UIDevice.current.name,
+                         forHTTPHeaderField: "X-G1-Client-Name")
         if let body {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try JSONSerialization.data(withJSONObject: body)

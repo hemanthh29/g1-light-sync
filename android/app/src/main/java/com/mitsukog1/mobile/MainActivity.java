@@ -7,6 +7,7 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
+import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
@@ -38,6 +39,7 @@ import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.UUID;
 
 public class MainActivity extends Activity {
     private static final String USB_BASE = "http://127.0.0.1:8765";
@@ -192,7 +194,15 @@ public class MainActivity extends Activity {
     private void refresh(boolean notify){io.execute(()->{try{JSONObject st=get("/api/status");String via=lastTransport;JSONArray names=get("/api/profiles").optJSONArray("profiles");runOnUiThread(()->{
         boolean device=st.optBoolean("deviceConnected"), cap=st.optJSONObject("capture")!=null&&st.optJSONObject("capture").optBoolean("running");
         link.setText(device?"Laptop linked · G1 connected":"Laptop linked · G1 not detected");linkDetail.setText(via.equals("Wi-Fi")?"Wi-Fi · same network":"USB debugging · ADB tunnel");String m=st.optString("mode","idle");
-        if(m.equals("screen"))mode.setText("Screen sync is on");else if(m.equals("music"))mode.setText("Music reactive is on");else mode.setText("Ready to sync");
+        JSONObject light=st.optJSONObject("lightState");
+        if(m.equals("screen"))mode.setText("Screen sync is on");
+        else if(m.equals("music"))mode.setText("Music reactive is on");
+        else if(m.equals("animate"))mode.setText("Lighting effect is on");
+        else mode.setText(lightStatus(light));
+        if(light!=null&&light.has("brightness")){
+            int raw=Math.max(5,Math.min(255,light.optInt("brightness",currentBrightness*255/100)));
+            currentBrightness=Math.round(raw*100f/255f);brightness.setProgress(currentBrightness);brightnessValue.setText(currentBrightness+"%");
+        }
         if(names!=null){profileRow.removeAllViews();for(int i=0;i<names.length();i++){String n=names.optString(i);Button b=button(n,false);LinearLayout.LayoutParams p=lp(-2,42);p.rightMargin=dp(8);profileRow.addView(b,p);b.setOnClickListener(v->send("screen",json("profile",n)));}}
         if(notify)Toast.makeText(this,device?"Laptop link ready · G1 connected" : (cap?"Laptop link ready; G1 not detected":"Laptop link ready"),Toast.LENGTH_SHORT).show();
     });}catch(Exception e){runOnUiThread(()->{link.setText("Laptop not found · check connection");linkDetail.setText("Same Wi-Fi or USB debugging");mode.setText("Waiting for laptop");if(notify)Toast.makeText(this,"Open G1 Light Sync on the laptop and connect via Wi-Fi or USB",Toast.LENGTH_LONG).show();});}});}
@@ -254,10 +264,22 @@ public class MainActivity extends Activity {
     }
     private JSONObject request(String url,String token,String method,JSONObject body,int connectTimeout,int readTimeout)throws Exception{
         HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setConnectTimeout(connectTimeout);c.setReadTimeout(readTimeout);c.setRequestMethod(method);c.setUseCaches(false);c.setRequestProperty("Connection","keep-alive");
+        c.setRequestProperty("X-G1-Client-Id",clientId());c.setRequestProperty("X-G1-Client-Name",clientName());
         if(token!=null&&!token.isEmpty())c.setRequestProperty("Authorization","Bearer "+token);
         if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
         int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();String response=read(in);c.disconnect();JSONObject result=new JSONObject(response);
         if(code>=400||!result.optBoolean("ok",true))throw new Exception(result.optString("error","HTTP "+code));return result;
+    }
+    private String clientId(){String id=getPreferences(MODE_PRIVATE).getString("g1ClientId","");if(id.isEmpty()){id=UUID.randomUUID().toString();getPreferences(MODE_PRIVATE).edit().putString("g1ClientId",id).apply();}return id;}
+    private String clientName(){String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();String model=Build.MODEL==null?"Android phone":Build.MODEL.trim();if(manufacturer.isEmpty()||model.toLowerCase().startsWith(manufacturer.toLowerCase()))return model;return manufacturer+" "+model;}
+    private String lightStatus(JSONObject light){
+        if(light==null)return "Ready to sync";
+        String kind=light.optString("mode","");
+        if(kind.equals("off"))return "LEDs are off";
+        if(kind.equals("solid")){JSONArray rgb=light.optJSONArray("color");if(rgb!=null&&rgb.length()==3)return String.format(java.util.Locale.ROOT,"Solid color · #%02X%02X%02X",rgb.optInt(0),rgb.optInt(1),rgb.optInt(2));return "Solid lighting is on";}
+        if(kind.equals("effect")){int id=light.optInt("effect_id",0),n=light.optInt("effect_param",0)+1;String effect=id==2?"Dynamic":id==3?"Pickup":"Effect";return effect+" "+n+" is on";}
+        if(kind.equals("animate"))return light.optString("animation","Lighting effect").replace('_',' ')+" is on";
+        return "Ready to sync";
     }
     private void send(String action,JSONObject fields){JSONObject data=json("action",action);if(fields!=null){java.util.Iterator<String> it=fields.keys();while(it.hasNext()){String k=it.next();try{data.put(k,fields.get(k));}catch(Exception ignored){}}}
         io.execute(()->{try{JSONObject result=postAction(data);runOnUiThread(()->Toast.makeText(this,result.optString("message","Done"),Toast.LENGTH_SHORT).show());}catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Could not reach laptop: "+e.getMessage(),Toast.LENGTH_LONG).show());}});

@@ -49,6 +49,7 @@ APP_DIR = os.path.dirname(os.path.abspath(__file__))
 CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
 CONFIG_DIR = os.path.join(CONFIG_HOME, "mitsuko-g1")
 CONFIG = os.path.join(CONFIG_DIR, "mitsuko_g1.json")
+STATE_FILE = os.path.join(CONFIG_DIR, "device_state.json")
 LEGACY_CONFIG = os.path.join(APP_DIR, "mitsuko_g1.json")
 
 
@@ -70,6 +71,36 @@ def save_config(cfg):
     if uid:
         try:
             os.chown(CONFIG, int(uid), int(os.environ.get("SUDO_GID", uid)))
+        except OSError:
+            pass
+
+
+def save_device_state(mode=None, **fields):
+    """Persist the last lighting state so the desktop and phone UIs agree."""
+    try:
+        with open(STATE_FILE) as f:
+            state = json.load(f)
+    except (OSError, ValueError):
+        state = {}
+    if mode is not None and state.get("mode") != mode:
+        brightness = state.get("brightness")
+        state = {"mode": mode}
+        if isinstance(brightness, int):
+            state["brightness"] = brightness
+    elif mode is not None:
+        state["mode"] = mode
+    state.update(fields)
+    state["updatedAt"] = int(time.time())
+    temp = f"{STATE_FILE}.{os.getpid()}.tmp"
+    try:
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(temp, "w") as f:
+            json.dump(state, f)
+        os.chmod(temp, 0o600)
+        os.replace(temp, STATE_FILE)
+    except OSError:
+        try:
+            os.unlink(temp)
         except OSError:
             pass
 
@@ -305,7 +336,9 @@ def send_frame_resilient(g, colors):
 
 def turn_off_if_connected(g):
     try:
+        g.turn_off()
         g.solid(0, 0, 0)
+        save_device_state("off", power=False)
     except OSError:
         print("G1 is disconnected; skipped the final off frame.", file=sys.stderr, flush=True)
 
@@ -843,6 +876,7 @@ def main():
         return
     if a.cmd == "color":
         g.solid(a.r, a.g, a.b)
+        save_device_state("solid", power=True, color=[a.r, a.g, a.b])
         cfg = load_config()
         cfg["color"] = [a.r, a.g, a.b]
         cfg.pop("effect", None)
@@ -850,6 +884,7 @@ def main():
     elif a.cmd == "off":
         reply = g.turn_off()
         g.solid(0, 0, 0)
+        save_device_state("off", power=False)
         cfg = load_config()
         cfg.pop("effect", None)
         save_config(cfg)
@@ -891,8 +926,10 @@ def main():
                 print("No saved static color; set a color once, then brightness can be reapplied.")
         else:
             print("Brightness command sent, but the device did not acknowledge it.")
+        save_device_state(brightness=max(5, a.value))
     elif a.cmd == "effect":
         reply = g.effect(a.id, a.param)
+        save_device_state("effect", power=True, effect_id=a.id, effect_param=a.param)
         cfg = load_config()
         cfg["effect"] = [a.id, a.param]
         save_config(cfg)
@@ -911,9 +948,12 @@ def main():
         counts = parse_counts(a.counts) if a.counts else None
         if counts and sum(counts.values()) != g.lamps:
             print(f"Warning: counts add up to {sum(counts.values())} but the LED count is {g.lamps}.")
+        save_device_state("screen", power=True, fps=a.fps, monitor=a.monitor)
         try:
             screen_sync(g, counts, parse_path(a.path_order), a.fps, a.smooth, a.depth, a.monitor)
         except KeyboardInterrupt:
+            pass
+        finally:
             turn_off_if_connected(g)
     elif a.cmd == "animate":
         try:
@@ -926,9 +966,12 @@ def main():
         cfg = load_config()
         cfg.pop("effect", None)
         save_config(cfg)
+        save_device_state("animate", power=True, animation=a.name, color=list(base_color))
         try:
             run_animation(g, a.name, a.fps, base_color)
         except KeyboardInterrupt:
+            pass
+        finally:
             turn_off_if_connected(g)
     elif a.cmd == "music":
         if not 1 <= a.fps <= 60:
@@ -953,13 +996,16 @@ def main():
         cfg = load_config()
         cfg.pop("effect", None)
         save_config(cfg)
+        save_device_state("music", power=True, audio_mode=a.mode)
         try:
             run_music(g, a.fps, a.sensitivity, a.mode, base_color, edge_counts, zone_colors)
         except KeyboardInterrupt:
-            turn_off_if_connected(g)
+            pass
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(1)
+        finally:
+            turn_off_if_connected(g)
     elif a.cmd == "notification":
         alert = tuple(max(0, min(255, channel)) for channel in (a.r, a.g, a.b))
         base = tuple(max(0, min(255, channel)) for channel in a.base_color) if a.base_color else None

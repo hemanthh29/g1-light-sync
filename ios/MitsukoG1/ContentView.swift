@@ -146,7 +146,23 @@ struct ContentView: View {
         case "screen": return "Screen sync is on"
         case "music": return "Music reactive is on"
         case "animate": return "Lighting effect is on"
-        default: return "Ready to sync"
+        default:
+            switch model.lightState["mode"] as? String {
+            case "off": return "LEDs are off"
+            case "solid":
+                if let rgb = model.lightState["color"] as? [Int], rgb.count == 3 {
+                    return String(format: "Solid color · #%02X%02X%02X", rgb[0], rgb[1], rgb[2])
+                }
+                return "Solid lighting is on"
+            case "effect":
+                let id = model.lightState["effect_id"] as? Int ?? 0
+                let number = (model.lightState["effect_param"] as? Int ?? 0) + 1
+                let effect = id == 2 ? "Dynamic" : id == 3 ? "Pickup" : "Effect"
+                return "\(effect) \(number) is on"
+            case "animate":
+                return "\((model.lightState["animation"] as? String ?? "Lighting effect").replacingOccurrences(of: "_", with: " ").capitalized) is on"
+            default: return "Ready to sync"
+            }
         }
     }
 

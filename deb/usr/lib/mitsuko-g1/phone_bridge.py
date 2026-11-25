@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Authenticated local-network bridge for the G1 Light Sync companions."""
 from __future__ import annotations
-import hmac, ipaddress, json, os, secrets, signal, shutil, socket, subprocess, threading, time
+import hmac, ipaddress, json, os, re, secrets, signal, shutil, socket, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -17,8 +17,12 @@ DISCOVERY_REQUEST = b'MITSUKO_G1_DISCOVER_V1'
 ADB = HOME / '.local/bin/adb'
 PAIR_FILE = HOME / '.config/mitsuko-g1/phone_pairing.json'
 TOKEN_FILE = HOME / '.config/mitsuko-g1/phone_access_token'
+STATE_FILE = Path(os.environ.get('XDG_CONFIG_HOME', HOME / '.config')) / 'mitsuko-g1/device_state.json'
 _lock = threading.RLock()
+_client_lock = threading.RLock()
 _pair_attempts = {}
+_connected_clients = {}
+CLIENT_TTL = 20
 
 
 def private_write(path, value):
@@ -62,6 +66,28 @@ def read_json(path, default):
         return default
 
 
+def register_client(handler):
+    client_id = handler.headers.get('X-G1-Client-Id', '')
+    if not re.fullmatch(r'[A-Za-z0-9-]{8,64}', client_id):
+        return
+    raw_name = handler.headers.get('X-G1-Client-Name', 'Phone')
+    name = ''.join(ch for ch in raw_name if ch.isprintable()).strip()[:48] or 'Phone'
+    with _client_lock:
+        _connected_clients[client_id] = {'name': name, 'seen': time.monotonic()}
+        cutoff = time.monotonic() - CLIENT_TTL
+        for key in [key for key, client in _connected_clients.items() if client['seen'] < cutoff]:
+            del _connected_clients[key]
+
+
+def connected_clients():
+    cutoff = time.monotonic() - CLIENT_TTL
+    with _client_lock:
+        for key in [key for key, client in _connected_clients.items() if client['seen'] < cutoff]:
+            del _connected_clients[key]
+        return sorted(({'name': client['name']} for client in _connected_clients.values()),
+                      key=lambda client: client['name'].casefold())
+
+
 def active_mode():
     try:
         for entry in Path('/proc').iterdir():
@@ -102,7 +128,9 @@ def usb_connected():
 
 
 def status():
-    return {'ok': True, 'deviceConnected': usb_connected(), 'mode': active_mode(), 'capture': capture_status()}
+    return {'ok': True, 'deviceConnected': usb_connected(), 'mode': active_mode(),
+            'lightState': read_json(STATE_FILE, {}),
+            'connectedDevices': connected_clients(), 'capture': capture_status()}
 
 
 def keep_usb_reverse():
@@ -234,7 +262,7 @@ def action(data):
                                         '--fps', fps, '--smooth', smooth, '--depth', depth, '--monitor', monitor),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
-            return {'ok': True, 'message': 'Screen sync started', 'pid': proc.pid}
+            return {'ok': True, 'message': 'Screen sync started', 'pid': proc.pid, 'status': status()}
         if command == 'music':
             mode = str(data.get('mode', 'combined'))
             if mode not in ('combined','bass','treble','voice'):
@@ -245,7 +273,7 @@ def action(data):
                                         '--sensitivity', float(settings.get('audio_sensitivity', 1.5))),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
-            return {'ok': True, 'message': 'Music reactive started', 'pid': proc.pid}
+            return {'ok': True, 'message': 'Music reactive started', 'pid': proc.pid, 'status': status()}
         if command == 'brightness':
             value = max(5, min(255, int(data.get('value', 180))))
             previous = terminate_active()
@@ -302,7 +330,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(403, {'ok':False,'error':'G1 Light Sync phone access is limited to your local network'}); return
         if not self._authorized():
             self._json(401, {'ok':False,'error':'Pair this phone with the laptop first'}); return
-        if self.path == '/api/status': self._json(200, status())
+        if self.path == '/api/status':
+            register_client(self)
+            self._json(200, status())
         elif self.path == '/api/profiles':
             settings = read_json(GUI_CONFIG, {})
             self._json(200, {'profiles': sorted(settings.get('profiles', {}).keys())})
@@ -332,6 +362,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(403, {'ok':False,'error':'G1 Light Sync phone access is limited to your local network'}); return
             if not self._authorized():
                 self._json(401, {'ok':False,'error':'Pair this phone with the laptop first'}); return
+            register_client(self)
             self._json(200, action(data))
         except Exception as exc:
             self._json(400, {'ok':False,'error':str(exc)[:500]})
