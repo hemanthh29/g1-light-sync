@@ -14,13 +14,13 @@ Each platform has separate GitHub Releases with its package and SHA-256 checksum
 
 - Linux DEB: `deb-1.0.10-22`
 - Android APK: `android-1.3`
-- iOS IPA: `ios-1.1-build3` (unsigned; sign/install with SideStore or another iOS sideloading workflow)
+- iOS IPA: `ios-1.1-build4` (unsigned; sign/install with SideStore or another iOS sideloading workflow)
 
 ## Build versions
 
 - Debian package: 1.0.10-22
 - Android: 1.3, version code 4
-- iOS: 1.1, build 3; deployment target iOS 16+
+- iOS: 1.1, build 4; deployment target iOS 16+
 
 The desktop source tree is the source payload shipped in the matching DEB. Its Debian control files and maintainer scripts are under `deb/DEBIAN/`.
 

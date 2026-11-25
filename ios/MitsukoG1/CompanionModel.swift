@@ -62,6 +62,13 @@ final class CompanionModel: ObservableObject {
             if let result = try? await request(path: "/api/profiles", base: baseURL, bearer: token) {
                 profiles = result["profiles"] as? [String] ?? []
             }
+        } catch CompanionError.unauthorized {
+            TokenVault.delete()
+            token = nil
+            connected = false
+            profiles = []
+            message = "This iPhone’s saved pairing expired. Pair it again with the laptop."
+            showPairing = true
         } catch {
             connected = false
             message = laptopFound ? "Laptop found · reconnecting…" : "Looking for your laptop on Wi-Fi…"
@@ -125,6 +132,9 @@ final class CompanionModel: ObservableObject {
         let (data, response) = try await URLSession.shared.data(for: request)
         let payload = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] ?? [:]
         let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if code == 401 {
+            throw CompanionError.unauthorized
+        }
         guard (200..<300).contains(code), payload["ok"] as? Bool != false else {
             throw CompanionError.message(payload["error"] as? String ?? "Laptop request failed (\(code)).")
         }
@@ -133,10 +143,13 @@ final class CompanionModel: ObservableObject {
 }
 
 enum CompanionError: LocalizedError {
+    case unauthorized
     case message(String)
     var errorDescription: String? {
-        if case let .message(text) = self { return text }
-        return "Could not reach the laptop. Check that both devices are on the same Wi-Fi."
+        switch self {
+        case .unauthorized: return "This iPhone’s saved pairing expired. Pair it again with the laptop."
+        case let .message(text): return text
+        }
     }
 }
 
@@ -206,5 +219,12 @@ enum TokenVault {
         } else if status != errSecSuccess {
             throw CompanionError.message("Could not securely save the pairing.")
         }
+    }
+
+    static func delete() {
+        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword,
+                                    kSecAttrService as String: service,
+                                    kSecAttrAccount as String: account]
+        SecItemDelete(query as CFDictionary)
     }
 }

@@ -1,0 +1,41 @@
+name: Build unsigned iOS IPA
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Build for iPhone
+        run: |
+          xcodebuild \
+            -project ios/MitsukoG1.xcodeproj \
+            -target MitsukoG1 \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath "$RUNNER_TEMP/MitsukoG1Build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO
+          mkdir -p "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist
+          cp -R "$RUNNER_TEMP/MitsukoG1Build/Build/Products/Release-iphoneos/MitsukoG1.app" \
+            "$RUNNER_TEMP/MitsukoG1IPA/Payload/"
+          ditto -c -k --sequesterRsrc --keepParent \
+            "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist/MitsukoG1-unsigned.ipa
+          shasum -a 256 dist/MitsukoG1-unsigned.ipa > dist/SHA256SUMS.txt
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: MitsukoG1-unsigned-IPA
+          path: |
+            dist/MitsukoG1-unsigned.ipa
+            dist/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
