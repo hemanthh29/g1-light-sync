@@ -48,7 +48,7 @@ This opens the desktop portal permission chooser. Screen sync can then reuse the
 
 Captures the computer's PipeWire playback mix, so no microphone is needed. Select a mode and adjust sensitivity in the GUI:
 
-- **Combined:** bass pulses along the bottom; vocal-range and midrange energy colors the sides; treble accents the top. Beat and transient accents now use fast attacks and visible fades across their zones. Choose and save a separate color for each zone in the Music zone colors card.
+- **Combined:** bass pulses along the bottom; vocal-range and midrange energy colors the sides; treble accents the top. Per-band loudness adapts to the current song, while bass hits, vocal/mid attacks, and treble transients sweep bright pulses through their zones. Choose and save a separate color for each zone in the Music zone colors card.
 - **Bass:** reacts mainly to low-frequency energy and beat changes.
 - **Treble:** emphasizes high-frequency energy and transients.
 - **Voice emphasis:** emphasizes energy in a vocal-like frequency range. It does not isolate or identify vocals.

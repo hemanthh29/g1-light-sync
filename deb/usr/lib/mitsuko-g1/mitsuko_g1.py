@@ -698,12 +698,13 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
         labels = {"combined": "Combined", "bass": "Bass", "treble": "Treble", "voice": "Voice emphasis (approx.)"}
         print(f"{labels[mode]} music mode running at up to {fps} FPS; capturing PipeWire output. Ctrl+C to stop.", flush=True)
         levels = np.zeros(4, dtype=np.float32)
-        band_reference = None
+        band_reference_db = None
         audio_history = np.zeros(window_size, dtype=np.float32)
         previous_spectrum = np.zeros(window_size // 2 + 1, dtype=np.float32)
         bass_hit = 0.0
         voice_hit = 0.0
         treble_hit = 0.0
+        last_pulse = {"bass": -1e9, "voice": -1e9, "treble": -1e9}
         zone_hsv = {name: colorsys.rgb_to_hsv(*(channel / 255 for channel in zone_colors[name]))
                     for name in ("bass", "voice", "treble")}
         last_report = time.monotonic()
@@ -721,7 +722,16 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
             # Positive spectral flux catches attacks (kick, snare, syllables,
             # cymbal hits) independently of the band's sustained loudness.
             relative_flux = flux / max(0.0005, float(previous_band.sum()))
-            return min(1.0, max(0.0, (relative_flux - 0.025) / 0.18))
+            return min(1.0, max(0.0, (relative_flux - 0.012) / 0.10))
+
+        def pulse_at(position, event_time, now, center_out=False):
+            age = now - event_time
+            if age < 0.0 or age > 0.70:
+                return 0.0
+            distance = abs(position - 0.5) * 2.0 if center_out else position
+            front = min(1.0, age * (2.9 if center_out else 2.5))
+            shell = math.exp(-((distance - front) / 0.22) ** 2)
+            return shell * math.exp(-age / 0.52)
 
         def rgb_for_zone(name, value):
             hue, saturation, base_value = zone_hsv[name]
@@ -748,21 +758,24 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
                 audio_history[:-samples_per_block] = audio_history[samples_per_block:]
                 audio_history[-samples_per_block:] = samples
             spectrum = np.abs(np.fft.rfft(audio_history * window)) * (2.0 / max(1.0, float(window.sum())))
-            energies = []
+            energies_db = []
             for mask in masks:
                 energy = float(np.sqrt(np.sum(spectrum[mask] ** 2) * 0.5)) if np.any(mask) else 0.0
-                gain = 8.0 + 2.0 * sensitivity
-                energies.append(1.0 - math.exp(-energy * gain))
-            current = np.asarray(energies, dtype=np.float32)
-            if band_reference is None:
-                band_reference = np.maximum(current.copy(), 0.04)
-            normalized = np.zeros_like(current)
-            for index, target in enumerate(current):
-                reference = float(band_reference[index])
-                reference_rate = 0.12 if target > reference else 0.03
-                band_reference[index] += (target - reference) * reference_rate
-                relative_level = float(target) / max(0.04, float(band_reference[index]))
-                normalized[index] = min(1.0, max(0.0, (relative_level - 0.45) / 1.10))
+                energies_db.append(20.0 * math.log10(max(energy, 1e-6)))
+            current_db = np.asarray(energies_db, dtype=np.float32)
+            if band_reference_db is None:
+                band_reference_db = current_db.copy()
+            normalized = np.zeros_like(current_db)
+            # Compare each band to its own slow loudness reference in dB. This
+            # keeps max sensitivity from flattening a loud song into constant
+            # full-scale values before the reactive mapping is applied.
+            dynamic_range_db = 17.0 - 1.2 * sensitivity
+            for index, target in enumerate(current_db):
+                reference = float(band_reference_db[index])
+                reference_rate = 0.06 if target > reference else 0.015
+                band_reference_db[index] += (target - reference) * reference_rate
+                delta_db = float(target) - float(band_reference_db[index])
+                normalized[index] = min(1.0, max(0.0, 0.5 + delta_db / dynamic_range_db))
             for index, target in enumerate(normalized):
                 # Fast attack keeps beats crisp; the slower release gives each
                 # hit a visible tail instead of letting it disappear instantly.
@@ -782,42 +795,65 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
             bass_hit = max(bass_hit * 0.84, bass_onset * gate)
             voice_hit = max(voice_hit * 0.82, voice_onset * gate)
             treble_hit = max(treble_hit * 0.84, treble_onset * gate)
+            pulse_time = time.monotonic()
+            if bass_onset > 0.12 and gate > 0.1:
+                last_pulse["bass"] = pulse_time
+            if voice_onset > 0.12 and gate > 0.1:
+                last_pulse["voice"] = pulse_time
+            if treble_onset > 0.12 and gate > 0.1:
+                last_pulse["treble"] = pulse_time
 
             if time.monotonic() - last_report >= 1.0:
                 print("Audio levels · bass {:.2f} · low-mid {:.2f} · voice-range {:.2f} · treble {:.2f}".format(*levels), flush=True)
                 last_report = time.monotonic()
 
             if mode == "bass":
-                value = 0.025 + 0.50 * float(levels[0]) + 1.05 * bass_hit
-                color = rgb_for_zone("bass", value)
+                colors = [rgb_for_zone(
+                    "bass", 0.04 + 0.44 * float(levels[0]) + 0.20 * bass_hit
+                    + 0.90 * pulse_at(index / max(1, g.lamps - 1), last_pulse["bass"], pulse_time, center_out=True)
+                ) for index in range(g.lamps)]
             elif mode == "treble":
-                value = 0.02 + 0.45 * float(levels[3]) + 1.05 * treble_hit
-                color = rgb_for_zone("treble", value)
+                colors = [rgb_for_zone(
+                    "treble", 0.04 + 0.38 * float(levels[3]) + 0.18 * treble_hit
+                    + 0.92 * pulse_at(index / max(1, g.lamps - 1), last_pulse["treble"], pulse_time)
+                ) for index in range(g.lamps)]
             elif mode == "voice":
-                value = 0.025 + 0.70 * float(levels[2]) + 0.90 * voice_hit
-                color = rgb_for_zone("voice", value)
+                colors = [rgb_for_zone(
+                    "voice", 0.04 + 0.45 * float(levels[2]) + 0.18 * voice_hit
+                    + 0.90 * pulse_at(index / max(1, g.lamps - 1), last_pulse["voice"], pulse_time)
+                ) for index in range(g.lamps)]
             else:
-                # Keep the spatial mapping, but make musical attacks much more
-                # visible: bass hits pulse the bottom and lightly lift the
-                # sides/top; voice and treble attacks accent their own zones.
+                # Preserve the selected colors and frequency map, while each
+                # transient travels through its zone instead of lighting the
+                # entire edge as one static block.
                 bass = float(levels[0])
                 low_mid = float(levels[1])
                 voice = float(levels[2])
                 treble = float(levels[3])
-                bass_color = rgb_for_zone("bass", 0.025 + 0.50 * bass + 1.05 * bass_hit)
-                voice_color_rgb = rgb_for_zone(
-                    "voice", 0.025 + 0.52 * voice + 0.28 * low_mid + 0.90 * voice_hit + 0.34 * bass_hit
-                )
-                treble_color = rgb_for_zone("treble", 0.02 + 0.45 * treble + 1.05 * treble_hit + 0.38 * bass_hit)
-                sides_rgb = voice_color_rgb
-                colors = ([bass_color] * edge_counts["bottom"]
-                          + [sides_rgb] * edge_counts["left"]
-                          + [treble_color] * edge_counts["top"]
-                          + [sides_rgb] * edge_counts["right"])
+                bottom = edge_counts["bottom"]
+                left = edge_counts["left"]
+                top = edge_counts["top"]
+                right = edge_counts["right"]
+                colors = [rgb_for_zone(
+                    "bass", 0.04 + 0.42 * bass + 0.18 * bass_hit
+                    + 0.92 * pulse_at(index / max(1, bottom - 1), last_pulse["bass"], pulse_time, center_out=True)
+                ) for index in range(bottom)]
+                colors += [rgb_for_zone(
+                    "voice", 0.04 + 0.39 * voice + 0.18 * low_mid + 0.15 * voice_hit + 0.10 * bass_hit
+                    + 0.82 * pulse_at(index / max(1, left - 1), last_pulse["voice"], pulse_time)
+                ) for index in range(left)]
+                colors += [rgb_for_zone(
+                    "treble", 0.035 + 0.36 * treble + 0.16 * treble_hit + 0.08 * bass_hit
+                    + 0.88 * pulse_at(index / max(1, top - 1), last_pulse["treble"], pulse_time)
+                ) for index in range(top)]
+                colors += [rgb_for_zone(
+                    "voice", 0.04 + 0.39 * voice + 0.18 * low_mid + 0.15 * voice_hit + 0.10 * bass_hit
+                    + 0.82 * pulse_at(1.0 - index / max(1, right - 1), last_pulse["voice"], pulse_time)
+                ) for index in range(right)]
                 send_frame_resilient(g, colors)
                 time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
                 continue
-            send_frame_resilient(g, [color] * max(1, g.lamps))
+            send_frame_resilient(g, colors)
             time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
     finally:
         stop_reader.set()
