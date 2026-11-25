@@ -268,7 +268,11 @@ class App(tk.Tk):
             x11 = ctypes.CDLL("libX11.so.6")
             x11.XOpenDisplay.restype = ctypes.c_void_p
             x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
+            x11.XQueryTree.argtypes = [ctypes.c_void_p, ctypes.c_ulong,
+                ctypes.POINTER(ctypes.c_ulong), ctypes.POINTER(ctypes.c_ulong),
+                ctypes.POINTER(ctypes.POINTER(ctypes.c_ulong)), ctypes.POINTER(ctypes.c_uint)]
             x11.XSetClassHint.argtypes = [ctypes.c_void_p, ctypes.c_ulong, ctypes.c_void_p]
+            x11.XFree.argtypes = [ctypes.c_void_p]
             x11.XFlush.argtypes = [ctypes.c_void_p]
             x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
 
@@ -278,8 +282,15 @@ class App(tk.Tk):
             display = x11.XOpenDisplay(None)
             if not display:
                 return
+            root_window, parent = ctypes.c_ulong(), ctypes.c_ulong()
+            children, count = ctypes.POINTER(ctypes.c_ulong)(), ctypes.c_uint()
+            x11.XQueryTree(display, self.winfo_id(), ctypes.byref(root_window), ctypes.byref(parent),
+                           ctypes.byref(children), ctypes.byref(count))
+            if children:
+                x11.XFree(children)
+            target_window = parent.value if parent.value != root_window.value else self.winfo_id()
             hint = XClassHint(b"mitsuko-g1", b"MitsukoG1")
-            x11.XSetClassHint(display, self.winfo_id(), ctypes.byref(hint))
+            x11.XSetClassHint(display, target_window, ctypes.byref(hint))
             x11.XFlush(display)
             x11.XCloseDisplay(display)
         except (OSError, tk.TclError, AttributeError):
