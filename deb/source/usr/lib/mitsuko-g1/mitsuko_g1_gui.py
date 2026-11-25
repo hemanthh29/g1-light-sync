@@ -173,7 +173,6 @@ class App(tk.Tk):
         # Keep Tk's point-sized fonts proportional to the selected 1220px mockup
         # on high-DPI 4K desktops where the system default is visibly oversized.
         self.tk.call("tk", "scaling", 1.0)
-        self.wm_class("mitsuko-g1", "MitsukoG1")
         self.title("Mitsuko G1 · Light Sync")
         self.logo_image = None
         self.brand_image = None

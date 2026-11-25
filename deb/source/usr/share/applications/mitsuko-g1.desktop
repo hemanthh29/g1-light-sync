@@ -5,7 +5,6 @@ Name=Mitsuko G1 Light Sync
 Comment=Control and sync the Mitsuko Phantom G1 monitor lights
 Exec=mitsuko-g1
 Icon=/usr/share/icons/hicolor/256x256/apps/mitsuko-g1.png
-StartupWMClass=MitsukoG1
 Terminal=false
 Categories=Utility;HardwareSettings;
 StartupNotify=true
