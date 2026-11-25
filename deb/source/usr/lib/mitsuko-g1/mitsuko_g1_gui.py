@@ -713,7 +713,7 @@ class App(tk.Tk):
                 self.notification_flash_enabled.set(False)
                 self._save_notification_preference()
                 return
-            self.details.set("Notification flash enabled · set a color or built-in effect to establish a restore state")
+            self.details.set("Notification flash enabled · apply a solid color or turn LEDs off first")
         else:
             self._stop_notification_monitor()
             self.details.set("Notification flash disabled")
@@ -786,7 +786,10 @@ class App(tk.Tk):
             return
         restore = self.notification_restore_state
         if restore is None:
-            self.details.set("Notification received · apply a solid color or built-in effect first")
+            self.details.set("Notification received · apply a solid color or turn LEDs off first")
+            return
+        if restore[0] == "effect":
+            self.details.set("Notification flash skipped · lighting effects are left alone")
             return
         flash_rgb = tuple(int(self.color[index:index + 2], 16) for index in (1, 3, 5))
         if restore[0] == "color":
@@ -797,8 +800,6 @@ class App(tk.Tk):
         flash_command = self._base_cmd() + ["color", *(str(channel) for channel in flash_rgb)]
         if restore[0] == "color":
             restore_command = self._base_cmd() + ["color", *(str(channel) for channel in restore[1:])]
-        elif restore[0] == "effect":
-            restore_command = self._base_cmd() + ["effect", str(restore[1]), str(restore[2])]
         else:
             restore_command = self._base_cmd() + ["off"]
         self.notification_flash_running = True
@@ -1454,7 +1455,7 @@ class App(tk.Tk):
                   text="Briefly flash the selected palette color when a desktop notification arrives.",
                   style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(12, 4))
         ttk.Label(notification,
-                  text="Runs only in a known steady state. Apply a color or built-in effect first; screen, music, and app effects are left alone.",
+                  text="Works when the strip is showing a solid color or is off. Built-in and app lighting effects, screen sync, and music sync are left alone.",
                   style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
 
         color_card = self._card(page, padding=17)
