@@ -22,7 +22,7 @@ The package installs and reloads the USB udev rule. Reconnect the strip if it wa
 
 ## Features
 
-The GUI is organized into four sections: Music reactive, Screen sync, Lighting effects, and Quick controls. Its music view shows a monitor-perimeter map alongside the active mode and sensitivity controls.
+The GUI is organized into four sections: Music reactive, Screen sync, Lighting effects, and Quick controls. Its music view shows a monitor-perimeter map alongside the active mode and sensitivity controls. Scroll the main content with the mouse wheel or the scrollbar to reach controls below the visible area.
 
 ### Background behavior
 

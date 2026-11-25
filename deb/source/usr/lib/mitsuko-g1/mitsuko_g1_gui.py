@@ -573,6 +573,10 @@ class App(tk.Tk):
         style.configure("Horizontal.TScale", background=PANEL, troughcolor="#263b33",
                         bordercolor="#263b33", lightcolor=ACCENT, darkcolor=ACCENT,
                         borderwidth=0, relief="flat")
+        style.configure("Vertical.TScrollbar", background=PANEL_ALT, troughcolor=BG,
+                        bordercolor=BG, lightcolor=PANEL_ALT, darkcolor=PANEL_ALT,
+                        arrowcolor=MUTED, borderwidth=0, relief="flat")
+        style.map("Vertical.TScrollbar", background=[("active", "#29463b")])
         style.configure("TSeparator", background=BORDER, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
 
     def _use_mockup_window_size(self):
@@ -854,8 +858,24 @@ class App(tk.Tk):
         ttk.Label(sidebar, text="94 LEDS  ·  USB HID", style="Muted.Card.TLabel").pack(anchor="w", padx=9)
         ttk.Label(sidebar, text="Music uses PipeWire playback", style="Muted.Card.TLabel", wraplength=145).pack(anchor="w", padx=9, pady=(7, 0))
 
-        content = ttk.Frame(body, style="Root.TFrame", padding=(24, 20, 24, 24))
-        content.pack(side="left", fill="both", expand=True)
+        content_view = ttk.Frame(body, style="Root.TFrame")
+        content_view.pack(side="left", fill="both", expand=True)
+        content_view.rowconfigure(0, weight=1)
+        content_view.columnconfigure(0, weight=1)
+        self.content_canvas = tk.Canvas(content_view, bg=BG, highlightthickness=0, bd=0)
+        self.content_canvas.grid(row=0, column=0, sticky="nsew")
+        self.content_scrollbar = ttk.Scrollbar(content_view, orient="vertical",
+                                               style="Vertical.TScrollbar",
+                                               command=self.content_canvas.yview)
+        self.content_scrollbar.grid(row=0, column=1, sticky="ns", padx=(6, 0))
+        self.content_canvas.configure(yscrollcommand=self.content_scrollbar.set)
+        content = ttk.Frame(self.content_canvas, style="Root.TFrame", padding=(24, 20, 24, 24))
+        self.content_window = self.content_canvas.create_window((0, 0), window=content, anchor="nw")
+        content.bind("<Configure>", self._update_content_scrollregion)
+        self.content_canvas.bind("<Configure>", self._resize_content_window)
+        self.bind_all("<MouseWheel>", self._on_content_mousewheel, add="+")
+        self.bind_all("<Button-4>", self._on_content_mousewheel, add="+")
+        self.bind_all("<Button-5>", self._on_content_mousewheel, add="+")
         content.rowconfigure(0, weight=1)
         content.columnconfigure(0, weight=1)
         for key, builder in (("Music", self._build_music_page), ("Screen", self._build_screen_page),
@@ -1066,8 +1086,36 @@ class App(tk.Tk):
 
     def _show_page(self, name):
         self.pages[name].tkraise()
+        if hasattr(self, "content_canvas"):
+            self.content_canvas.yview_moveto(0)
         for key, button in self.nav_buttons.items():
             button.configure(style="NavActive.TButton" if key == name else "Nav.TButton")
+
+    def _resize_content_window(self, event):
+        self.content_canvas.itemconfigure(self.content_window, width=max(1, event.width))
+
+    def _update_content_scrollregion(self, _event=None):
+        self.content_canvas.configure(scrollregion=self.content_canvas.bbox("all"))
+
+    def _on_content_mousewheel(self, event):
+        canvas = getattr(self, "content_canvas", None)
+        if canvas is None or not canvas.winfo_exists():
+            return
+        left, top = canvas.winfo_rootx(), canvas.winfo_rooty()
+        right, bottom = left + canvas.winfo_width(), top + canvas.winfo_height()
+        if not (left <= event.x_root < right and top <= event.y_root < bottom):
+            return
+        if getattr(event, "num", None) == 4:
+            units = -3
+        elif getattr(event, "num", None) == 5:
+            units = 3
+        else:
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return
+            units = -max(1, abs(delta) // 120) * (1 if delta > 0 else -1) * 3
+        canvas.yview_scroll(units, "units")
+        return "break"
 
     def _page_heading(self, parent, title, subtitle):
         heading = ttk.Frame(parent, style="Root.TFrame")
