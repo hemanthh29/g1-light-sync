@@ -1,0 +1,4 @@
+# Mitsuko Phantom G1 monitor backlight (QinHeng/WCH 1a86:fe07)
+# Grant plugdev access to both libusb and hidraw backends.
+SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ATTR{idVendor}=="1a86", ATTR{idProduct}=="fe07", GROUP="plugdev", MODE="0660", TAG+="uaccess"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="1a86", ATTRS{idProduct}=="fe07", GROUP="plugdev", MODE="0660", TAG+="uaccess"

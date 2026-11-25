@@ -1,0 +1,10 @@
+<resources>
+    <string name="shortcut_screen_short">Screen sync</string>
+    <string name="shortcut_screen_long">Start screen sync</string>
+    <string name="shortcut_music_short">Music lights</string>
+    <string name="shortcut_music_long">Start music reactive lighting</string>
+    <string name="shortcut_stop_short">Stop sync</string>
+    <string name="shortcut_stop_long">Stop Mitsuko lighting</string>
+    <string name="shortcut_off_short">Lights off</string>
+    <string name="shortcut_off_long">Turn Mitsuko lights off</string>
+</resources>

@@ -1,0 +1,11 @@
+Package: mitsuko-g1
+Version: 1.0.10-7
+Section: utils
+Priority: optional
+Architecture: all
+Depends: gir1.2-ayatanaappindicator3-0.1, adduser, gir1.2-gst-plugins-base-1.0, gir1.2-gstreamer-1.0, gstreamer1.0-pipewire, pipewire-bin, python3 (>= 3.10), fonts-noto-core, python3-dbus, python3-gi, python3-gst-1.0, python3-hid, python3-numpy, python3-pil, python3-tk, udev, xdg-desktop-portal
+Recommends: xdg-desktop-portal-gnome | xdg-desktop-portal-kde, avahi-daemon
+Maintainer: Mitsuko G1 Linux community package
+Description: Control and synchronize the Mitsuko Phantom G1 light strip
+ Desktop controls for the Phantom G1, including USB HID control, built-in
+ firmware effects, live PipeWire music reactive modes, screen sync, and paired phone control over Wi-Fi or USB, including iOS Bonjour discovery.

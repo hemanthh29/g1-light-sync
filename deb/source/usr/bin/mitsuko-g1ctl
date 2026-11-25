@@ -1,0 +1,2 @@
+#!/bin/sh
+exec /usr/bin/python3 /usr/lib/mitsuko-g1/mitsuko_g1.py "$@"

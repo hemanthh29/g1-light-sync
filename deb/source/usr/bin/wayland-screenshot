@@ -1,0 +1,5 @@
+#!/usr/bin/python3
+import sys
+sys.path.insert(0, "/usr/lib/mitsuko-g1")
+from wayland_screenshot.cli import main
+raise SystemExit(main())

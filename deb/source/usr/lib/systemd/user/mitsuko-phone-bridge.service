@@ -1,0 +1,12 @@
+[Unit]
+Description=Mitsuko G1 phone companion relay
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /usr/lib/mitsuko-g1/phone_bridge.py
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target

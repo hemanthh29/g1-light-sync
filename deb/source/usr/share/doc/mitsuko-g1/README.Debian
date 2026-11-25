@@ -1,0 +1,19 @@
+Mitsuko G1 Light Sync
+=====================
+
+Launch “Mitsuko G1 Light Sync” from the applications menu, or run:
+  mitsuko-g1
+
+The command-line controller is available as:
+  mitsuko-g1ctl info
+
+The package installs the USB udev rule, reloads udev, and adds the sudo
+invoking user to plugdev when possible. Reconnect the strip after install.
+Log out and back in if group membership was added.
+
+The package includes the Wayland portal helper. Grant monitor access once:
+  wayland-screenshot cast enroll --monitor
+The desktop portal will show its permission chooser. Music mode only needs
+PipeWire playback and does not require screen-capture authorization.
+
+Per-user settings are stored in ~/.config/mitsuko-g1.

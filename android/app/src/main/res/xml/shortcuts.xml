@@ -1,0 +1,26 @@
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="screen_sync" android:enabled="true" android:shortcutShortLabel="@string/shortcut_screen_short" android:shortcutLongLabel="@string/shortcut_screen_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
+            <extra android:name="mitsuko_action" android:value="screen" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut android:shortcutId="music_lighting" android:enabled="true" android:shortcutShortLabel="@string/shortcut_music_short" android:shortcutLongLabel="@string/shortcut_music_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
+            <extra android:name="mitsuko_action" android:value="music" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut android:shortcutId="stop_sync" android:enabled="true" android:shortcutShortLabel="@string/shortcut_stop_short" android:shortcutLongLabel="@string/shortcut_stop_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
+            <extra android:name="mitsuko_action" android:value="stop" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut android:shortcutId="lights_off" android:enabled="true" android:shortcutShortLabel="@string/shortcut_off_short" android:shortcutLongLabel="@string/shortcut_off_long">
+        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
+            <extra android:name="mitsuko_action" android:value="off" />
+        </intent>
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+</shortcuts>

@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Mitsuko G1 Light Sync
+Comment=Control and sync the Mitsuko Phantom G1 monitor lights
+Exec=mitsuko-g1
+Icon=mitsuko-g1
+Terminal=false
+Categories=Utility;HardwareSettings;
+StartupNotify=true

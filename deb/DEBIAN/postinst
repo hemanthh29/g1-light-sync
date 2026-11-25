@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+if ! getent group plugdev >/dev/null 2>&1; then
+    addgroup --system plugdev
+fi
+if [ -n "${SUDO_USER:-}" ] && id "$SUDO_USER" >/dev/null 2>&1; then
+    adduser "$SUDO_USER" plugdev || true
+fi
+udevadm control --reload-rules || true
+udevadm trigger --subsystem-match=hidraw || true
+exit 0

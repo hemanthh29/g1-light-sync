@@ -1,0 +1,8 @@
+**/.gradle/
+**/build/
+**/DerivedData/
+**/outputs/
+**/__pycache__/
+*.py[cod]
+*.iml
+local.properties

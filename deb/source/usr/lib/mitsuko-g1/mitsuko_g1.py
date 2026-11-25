@@ -1,0 +1,919 @@
+#!/usr/bin/env python3
+"""
+Linux controller for the Mitsuko Phantom G1 monitor backlight (USB HID 1a86:fe07).
+
+The protocol was read from the vendor's own desktop app (Mitsuko Smart Connect,
+an Electron app by Robobloq, internal name "QuikLight"). It is NOT officially
+documented. This script has been checked against the app's own packet builder
+(byte-for-byte), but it has NOT been tested on real hardware yet.
+
+Packet format (all values are bytes)
+------------------------------------
+Normal frame : 'R' 'B' | total_len | id | action | payload... | checksum
+Screen frame : 'S' 'C' | total_len (2 bytes, big endian) | id | 0x80 | groups... | checksum
+checksum     : sum of every byte in the frame (checksum byte counted as 0) mod 256
+id           : counter that cycles 2..254
+HID transport: frames are cut into 64-byte pieces, each written with a leading
+               0x00 report ID.
+
+Actions
+-------
+0x82 read info          0x85 effect(effect_id, param)   0x86 LED groups
+0x87 brightness(v)      0x89 auto-off(a, b)             0x8A effect speed(v)
+0x8B sound sensitivity  0x80 screen-sync frame (fw > 1.0.2)
+
+LED group = 5 bytes: [first_led, R, G, B, last_led]   (1-based, inclusive;
+254 means "to the end of the strip")
+
+Usage examples
+--------------
+  python3 mitsuko_g1.py info
+  python3 mitsuko_g1.py color 255 0 80
+  python3 mitsuko_g1.py brightness 60
+  python3 mitsuko_g1.py chase            # find out how your LEDs are laid out
+  python3 mitsuko_g1.py screen --counts left=15,top=15,right=15,bottom=15
+"""
+import argparse
+import colorsys
+import json
+import math
+import os
+import queue
+import shutil
+import subprocess
+import sys
+import threading
+import time
+
+APP_DIR = os.path.dirname(os.path.abspath(__file__))
+CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME", os.path.join(os.path.expanduser("~"), ".config"))
+CONFIG_DIR = os.path.join(CONFIG_HOME, "mitsuko-g1")
+CONFIG = os.path.join(CONFIG_DIR, "mitsuko_g1.json")
+LEGACY_CONFIG = os.path.join(APP_DIR, "mitsuko_g1.json")
+
+
+def load_config():
+    for path in (CONFIG, LEGACY_CONFIG):
+        try:
+            with open(path) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            continue
+    return {}
+
+
+def save_config(cfg):
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+    with open(CONFIG, "w") as f:
+        json.dump(cfg, f, indent=2)
+    uid = os.environ.get("SUDO_UID")  # keep the file owned by the real user when run with sudo
+    if uid:
+        try:
+            os.chown(CONFIG, int(uid), int(os.environ.get("SUDO_GID", uid)))
+        except OSError:
+            pass
+
+VID, PID = 0x1A86, 0xFE07
+
+ACT = {
+    "sync_screen": 0x80, "read_info": 0x82, "effect": 0x85, "section": 0x86,
+    "brightness": 0x87, "auto_off": 0x89, "speed": 0x8A, "sound": 0x8B,
+    "turn_off": 0x97,
+}
+
+
+# ----------------------------------------------------------------- packets --
+class Framer:
+    """Builds protocol frames; mirrors the vendor app's packet builder."""
+
+    def __init__(self):
+        self._id = 1
+
+    def next_id(self):
+        self._id += 1
+        if self._id >= 255:
+            self._id = 1
+        return self._id
+
+    @staticmethod
+    def _sum(buf):
+        return sum(buf) & 0xFF
+
+    def frame(self, action, payload=b"", pid=None):
+        pid = self.next_id() if pid is None else pid
+        buf = bytearray(b"RB" + bytes([6 + len(payload), pid, action]) + bytes(payload) + b"\x00")
+        buf[-1] = self._sum(buf)
+        return bytes(buf)
+
+    def screen_frame(self, groups, pid=None):
+        pid = self.next_id() if pid is None else pid
+        total = 7 + len(groups)
+        buf = bytearray(b"SC" + total.to_bytes(2, "big") + bytes([pid, ACT["sync_screen"]])
+                        + bytes(groups) + b"\x00")
+        buf[-1] = self._sum(buf)
+        return bytes(buf)
+
+
+def colors_to_groups(colors, to_end=False):
+    """[(r,g,b), ...] one per LED  ->  flat list of 5-byte groups (adjacent equal colors merged).
+    to_end=True makes the last group end at 254 ("to the end of the strip"), like the
+    vendor app's solid-color frames do."""
+    out, start = [], 0
+    for i in range(1, len(colors) + 1):
+        if i == len(colors) or colors[i] != colors[start]:
+            r, g, b = colors[start]
+            out += [start + 1, r, g, b, i]
+            start = i
+    if to_end and out:
+        out[-1] = 254
+    return out
+
+
+def parse_edge_counts(spec):
+    """Parse the perimeter in controller order: bottom, left, top, right."""
+    counts = {"bottom": 30, "left": 17, "top": 30, "right": 17}
+    try:
+        for item in spec.split(","):
+            key, value = item.split("=", 1)
+            if key.strip() not in counts:
+                raise ValueError
+            counts[key.strip()] = int(value.strip())
+        if any(value < 0 for value in counts.values()):
+            raise ValueError
+    except (ValueError, AttributeError):
+        raise ValueError("--counts must look like bottom=30,left=17,top=30,right=17")
+    return counts
+
+
+# ------------------------------------------------------------------ device --
+class G1:
+    def __init__(self, path=None, order="RGB", verbose=False, proto="section", chunk=11):
+        try:
+            import hid
+        except ImportError:
+            sys.exit("Missing HID binding. Install the package dependencies with `sudo apt install python3-hid` or reinstall the Mitsuko G1 package.")
+        self.hid, self.order, self.verbose = hid, order.upper(), verbose
+        self.no_end = False         # True = do not force the last group to end at 254
+        self.proto = proto          # "section" (0x86, known to work) or "sync" (0x80 'SC' frames)
+        self.chunk = max(1, min(chunk, 49))  # LED groups per 0x86 frame
+        self.framer = Framer()
+        self.dev = hid.device()
+        if path is None:
+            cands = [d for d in hid.enumerate(VID, PID) if d.get("interface_number", 0) in (0, -1)]
+            if not cands:
+                sys.exit("Mitsuko G1 (1a86:fe07) not found. Check `lsusb` and the udev rule.")
+            path = cands[0]["path"]
+        elif isinstance(path, str):
+            path = path.encode()
+        self.device_path = path
+        try:
+            self.dev.open_path(path)
+        except OSError as e:
+            sys.exit(f"Cannot open the device ({e}). Install the udev rule and replug the strip.")
+        self.dev.set_nonblocking(1)
+        self.fw = (0, 0, 0)
+        self.lamps = load_config().get("leds", 60)  # LED count used for chase / screen sync
+        self.lamps_reported = 0    # raw value from the strip (254 = "not configured")
+
+    def reconnect(self):
+        """Reopen the controller after a transient USB disconnect."""
+        try:
+            self.dev.close()
+        except (OSError, AttributeError):
+            pass
+        for item in self.hid.enumerate(VID, PID):
+            if item.get("interface_number", 0) not in (0, -1):
+                continue
+            device = self.hid.device()
+            try:
+                device.open_path(item["path"])
+                device.set_nonblocking(1)
+            except OSError:
+                try:
+                    device.close()
+                except OSError:
+                    pass
+                continue
+            self.dev = device
+            self.device_path = item["path"]
+            return True
+        return False
+
+    # -- low level
+    def write(self, data):
+        if self.verbose:
+            print("TX", data.hex(" "))
+        for i in range(0, len(data), 64):
+            self.dev.write(b"\x00" + data[i:i + 64])
+
+    def read_reply(self, pid, timeout=0.3):
+        end = time.time() + timeout
+        while time.time() < end:
+            r = bytes(self.dev.read(64))
+            if r:
+                if self.verbose:
+                    print("RX", r.hex(" "))
+                if r[:2] == b"RB" and len(r) > 3 and r[3] == pid:
+                    return r
+            else:
+                time.sleep(0.005)
+        return None
+
+    def drain(self):
+        while self.dev.read(64):
+            pass
+
+    def _rgb(self, r, g, b):
+        ch = {"R": r, "G": g, "B": b}
+        return tuple(ch[c] for c in self.order)
+
+    # -- commands
+    def info(self):
+        pid = self.framer.next_id()
+        self.write(self.framer.frame(ACT["read_info"], pid=pid))
+        r = self.read_reply(pid)
+        if not r or len(r) < 24:
+            return None
+        self.fw = (r[21], r[22], r[23])
+        self.lamps_reported = r[11]
+        if 0 < r[11] < 254:        # 254 means "to the end", i.e. count not set; keep default 60
+            self.lamps = r[11]
+        return {"raw": r.hex(" "), "lamps": r[11], "display_size": r[8],
+                "firmware": ".".join(map(str, self.fw)), "uuid": r[12:20].hex()}
+
+    def brightness(self, value):
+        # Smart Connect maps its alpha slider to 5..255; zero is not a valid
+        # dimming level on the manufacturer UI (the strip has a separate off command).
+        value = max(5, value)
+        pid = self.framer.next_id()
+        self.write(self.framer.frame(ACT["brightness"], bytes([value]), pid=pid))
+        return self.read_reply(pid)
+
+    def effect(self, effect_id, param=0):
+        pid = self.framer.next_id()
+        self.write(self.framer.frame(ACT["effect"], bytes([effect_id, param]), pid=pid))
+        return self.read_reply(pid)
+
+    def turn_off(self):
+        pid = self.framer.next_id()
+        self.write(self.framer.frame(ACT["turn_off"], pid=pid))
+        return self.read_reply(pid)
+
+    def speed(self, value):
+        self.write(self.framer.frame(ACT["speed"], bytes([value])))
+
+    def sound_sensitivity(self, value):
+        self.write(self.framer.frame(ACT["sound"], bytes([value])))
+
+    def groups(self, flat):
+        """Send LED groups using the 0x86 command (works on every firmware)."""
+        step = 5 * self.chunk  # 11 groups (55 bytes) per frame is what the vendor app uses
+        for i in range(0, len(flat), step):
+            self.write(self.framer.frame(ACT["section"], bytes(flat[i:i + step])))
+            if len(flat) > step:
+                time.sleep(0.02)
+
+    def solid(self, r, g, b):
+        c = self._rgb(r, g, b)
+        n = self.lamps_reported
+        flat = [1, *c, 254] if not (0 < n < 254) else [1, *c, n, n + 1, 0, 0, 0, 254]
+        self.groups(flat)
+
+    def frame_colors(self, colors):
+        """Send one color per LED (list of (r,g,b)); this is the screen-sync path."""
+        colors = [self._rgb(*c) for c in colors]
+        flat = colors_to_groups(colors, to_end=(self.proto == "section" and not self.no_end))
+        if self.proto == "sync" and self.fw > (1, 0, 2):
+            self.write(self.framer.screen_frame(flat))
+        else:
+            self.groups(flat)
+
+
+def send_frame_resilient(g, colors):
+    """Retry streamed frames after a USB disconnect, waiting for the G1 to return."""
+    while True:
+        try:
+            g.frame_colors(colors)
+            g.drain()
+            return
+        except OSError as exc:
+            print(f"G1 USB connection lost ({exc}); waiting to reconnect…", file=sys.stderr, flush=True)
+            while not g.reconnect():
+                time.sleep(1.0)
+            print("G1 reconnected; resuming live mode.", flush=True)
+
+
+def turn_off_if_connected(g):
+    try:
+        g.solid(0, 0, 0)
+    except OSError:
+        print("G1 is disconnected; skipped the final off frame.", file=sys.stderr, flush=True)
+
+
+# ------------------------------------------------------------ LED counting --
+def single_led(g, k):
+    """Light only LED number k (1-based) white; everything else off."""
+    flat = []
+    if k > 1:
+        flat += [1, 0, 0, 0, k - 1]
+    flat += [k, 255, 255, 255, k, k + 1, 0, 0, 0, 254]
+    g.groups(flat)
+
+
+def find_count(g, ask=input, lo=1, hi=253):
+    """Binary-search the number of LEDs. LED k is visible iff k <= real count."""
+    print("I will light ONE white LED at a time. Look along the whole strip.")
+    print("Answer y if you can see a lit white LED, n if the whole strip is dark,")
+    print("r to show it again, q to quit.\n")
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        while True:
+            single_led(g, mid)
+            ans = ask(f"Testing LED {mid}: is a white LED lit? [y/n/r/q] ").strip().lower()
+            if ans in ("y", "n"):
+                break
+            if ans == "q":
+                g.solid(0, 0, 0)
+                return None
+        if ans == "y":
+            lo = mid
+        else:
+            hi = mid - 1
+    return lo
+
+
+def auto_counts(n, width, height):
+    """Split n LEDs over the four edges in proportion to the screen's aspect ratio."""
+    per = 2 * (width + height)
+    horiz = round(n * width / per)
+    vert = (n - 2 * horiz) // 2
+    extra = n - 2 * horiz - 2 * vert
+    return {"top": horiz + extra, "bottom": horiz, "left": vert, "right": vert}
+
+
+# ------------------------------------------------------------- screen sync --
+def parse_counts(s):
+    d = {"left": 0, "top": 0, "right": 0, "bottom": 0}
+    for part in s.split(","):
+        k, v = part.split("=")
+        if k not in d:
+            raise ValueError(f"unknown edge {k!r}")
+        d[k] = int(v)
+    return d
+
+
+def parse_path(s):
+    spec = []
+    for part in s.split(","):
+        edge, direction = part.split(":")
+        ok = {"top": ("left", "right"), "bottom": ("left", "right"),
+              "left": ("up", "down"), "right": ("up", "down")}
+        if edge not in ok or direction not in ok[edge]:
+            raise ValueError(f"bad path element {part!r}")
+        spec.append((edge, direction))
+    return spec
+
+
+class WaylandCapture:
+    """Read whole-monitor BGRA frames from the authorized portal helper."""
+
+    def __init__(self):
+        if os.geteuid() == 0:
+            sys.exit("Run screen sync as your desktop user, not with sudo, so it can use Wayland capture.")
+        exe = (os.environ.get("WAYLAND_SCREENSHOT_BIN") or shutil.which("wayland-screenshot")
+               or os.path.expanduser("~/.local/share/wayland-screenshot-venv/bin/wayland-screenshot"))
+        if not os.path.isfile(exe) or not os.access(exe, os.X_OK):
+            sys.exit("Wayland capture helper is missing. Install wayland-screenshot or set WAYLAND_SCREENSHOT_BIN.")
+        self.state_dir = os.environ.get("WAYLAND_SCREENSHOT_STATE_DIR", "/dev/shm/wayland-screenshot")
+        self.meta_path = os.path.join(self.state_dir, "frame.json")
+        self.buffer_path = os.path.join(self.state_dir, "buffer.raw")
+        self.exe = exe
+        self.proc = None
+        self.attached = False
+        try:
+            status = subprocess.run([exe, "cast", "status", "--json"], capture_output=True,
+                                    text=True, timeout=3)
+            self.attached = status.returncode == 0 and json.loads(status.stdout).get("running", False)
+        except (OSError, subprocess.TimeoutExpired, ValueError):
+            self.attached = False
+        if not self.attached:
+            self.proc = subprocess.Popen([exe, "cast", "start"], stdout=subprocess.DEVNULL,
+                                         stderr=subprocess.PIPE, text=True)
+        deadline = time.time() + 20
+        while time.time() < deadline:
+            if self.proc is not None and self.proc.poll() is not None:
+                _, err = self.proc.communicate()
+                sys.exit("Wayland capture helper stopped: " + (err.strip() or "unknown error"))
+            try:
+                with open(self.meta_path) as f:
+                    meta = json.load(f)
+                if meta.get("width", 0) and meta.get("height", 0) and os.path.exists(self.buffer_path):
+                    self.width, self.height = int(meta["width"]), int(meta["height"])
+                    break
+            except (OSError, ValueError, KeyError):
+                pass
+            time.sleep(0.1)
+        else:
+            self.close()
+            sys.exit("Timed out waiting for Wayland monitor frames. Re-authorize with "
+                     "`wayland-screenshot cast enroll --monitor`.")
+
+    def grab(self, np):
+        if self.proc is not None and self.proc.poll() is not None:
+            _, err = self.proc.communicate()
+            raise RuntimeError("Wayland capture helper stopped: " + (err.strip() or "unknown error"))
+        with open(self.meta_path) as f:
+            meta = json.load(f)
+        width, height = int(meta["width"]), int(meta["height"])
+        stride = int(meta.get("stride") or width * 4)
+        raw = np.fromfile(self.buffer_path, dtype=np.uint8)
+        if raw.size < stride * height:
+            return None
+        return raw[:stride * height].reshape(height, stride)[:, :width * 4].reshape(height, width, 4)
+
+    def close(self):
+        if getattr(self, "proc", None) is not None and self.proc.poll() is None:
+            self.proc.terminate()
+            try:
+                self.proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.proc.kill()
+                self.proc.wait()
+        elif getattr(self, "attached", False):
+            subprocess.run([self.exe, "cast", "stop"], stdout=subprocess.DEVNULL,
+                           stderr=subprocess.DEVNULL, timeout=5)
+
+
+def screen_sync(g, counts, path, fps, smooth, depth, monitor):
+    try:
+        import numpy as np
+    except ImportError:
+        sys.exit("Missing dependency: install numpy in the g1env virtual environment.")
+    wayland = os.environ.get("XDG_SESSION_TYPE", "").lower() == "wayland" or bool(os.environ.get("WAYLAND_DISPLAY"))
+    sct = None
+    portal = None
+    if wayland:
+        portal = WaylandCapture()
+        width, height = portal.width, portal.height
+    else:
+        try:
+            import mss
+        except ImportError:
+            sys.exit("Missing dependency: install mss in the g1env virtual environment.")
+        sct = mss.MSS()
+        mon = sct.monitors[monitor]
+        width, height = mon["width"], mon["height"]
+    if counts is None:
+        counts = auto_counts(g.lamps, width, height)
+        print("Using estimated edge counts (override with --counts):", counts)
+    prev, interval = None, 1.0 / fps
+    print(f"Screen sync running at ~{fps} fps. Ctrl+C to stop.", flush=True)
+    try:
+        while True:
+            t0 = time.time()
+            if portal:
+                frame = portal.grab(np)
+                if frame is None:
+                    time.sleep(0.01)
+                    continue
+                # Portal/helper frames are BGRA; the sampling math expects RGB.
+                img = frame[::4, ::4, :3][:, :, ::-1].astype(np.float32)
+            else:
+                img = np.asarray(sct.grab(mon))[::4, ::4, :3][:, :, ::-1].astype(np.float32)
+            h, w = img.shape[:2]
+            dh, dw = max(1, int(h * depth)), max(1, int(w * depth))
+            leds = []
+            for edge, direction in path:
+                n = counts[edge]
+                if not n:
+                    continue
+                band = {"top": lambda: img[:dh].mean(axis=0), "bottom": lambda: img[-dh:].mean(axis=0),
+                        "left": lambda: img[:, :dw].mean(axis=1), "right": lambda: img[:, -dw:].mean(axis=1)}[edge]()
+                cols = [seg.mean(axis=0) for seg in np.array_split(band, n)]
+                if direction in ("left", "up"):  # natural order is left->right / top->bottom
+                    cols.reverse()
+                leds += cols
+            cur = np.array(leds)
+            prev = cur if prev is None else prev * smooth + cur * (1 - smooth)
+            colors = [tuple(int(v) for v in c) for c in prev]
+            while True:
+                try:
+                    g.frame_colors(colors)
+                    g.drain()
+                    break
+                except OSError as exc:
+                    print(f"G1 USB connection lost ({exc}); waiting to reconnect…", file=sys.stderr, flush=True)
+                    while not g.reconnect():
+                        time.sleep(1.0)
+                    print("G1 reconnected; resuming screen sync.", flush=True)
+            time.sleep(max(0.0, interval - (time.time() - t0)))
+    finally:
+        if portal:
+            portal.close()
+
+
+def run_animation(g, name, fps, base_color):
+    """Generate a lightweight color animation locally and stream it to the strip."""
+    n = max(1, g.lamps)
+    interval = 1.0 / max(1, fps)
+    started = time.monotonic()
+    r0, g0, b0 = base_color
+    print(f"{name.replace('_', ' ').title()} running at up to {fps} FPS. Ctrl+C to stop.", flush=True)
+    while True:
+        frame_start = time.monotonic()
+        t = frame_start - started
+        colors = []
+        for i in range(n):
+            x = i / max(1, n)
+            if name == "color_flow":
+                rgb = colorsys.hsv_to_rgb((x * 1.35 + t * 0.16) % 1.0, 0.92, 1.0)
+                color = tuple(round(c * 255) for c in rgb)
+            elif name == "aurora":
+                wave = math.sin(2 * math.pi * x * 1.5 - t * 0.75) + 0.45 * math.sin(2 * math.pi * x * 3.1 + t * 0.58)
+                hue = (0.50 + 0.16 * wave) % 1.0
+                value = 0.45 + 0.5 * (0.5 + 0.5 * math.sin(2 * math.pi * x * 2.2 - t * 0.9))
+                rgb = colorsys.hsv_to_rgb(hue, 0.78, value)
+                color = tuple(round(c * 255) for c in rgb)
+            elif name == "breathe":
+                level = 0.06 + 0.94 * (0.5 + 0.5 * math.sin(2 * math.pi * t / 4.2))
+                color = (round(r0 * level), round(g0 * level), round(b0 * level))
+            elif name == "comet":
+                head = (t * n / 2.2) % n
+                distance = (head - i) % n
+                level = 0.012 + 0.988 * math.exp(-distance / max(2.0, n * 0.07))
+                if distance > n * 0.55:
+                    level = 0.012
+                color = (round(r0 * level), round(g0 * level), round(b0 * level))
+            else:  # ember
+                flicker = 0.52 + 0.29 * math.sin(i * 1.77 + t * 4.1 + math.sin(i * 0.31 - t * 1.8))
+                flicker += 0.17 * math.sin(i * 0.53 - t * 2.7)
+                heat = max(0.12, min(1.0, flicker))
+                color = (255, round(52 + 126 * heat), round(4 + 22 * heat * heat))
+            colors.append(color)
+        send_frame_resilient(g, colors)
+        time.sleep(max(0.0, interval - (time.monotonic() - frame_start)))
+
+
+def run_music(g, fps, sensitivity, mode, base_color, edge_counts):
+    """Capture PipeWire playback and render a responsive, palette-based music mode."""
+    import numpy as np
+
+    # Keep the proven 0x86 section transport for live audio frames. Combined
+    # uses a handful of color regions, which fit in a single small report.
+    g.proto = "section"
+    if sum(edge_counts.values()) != g.lamps:
+        raise RuntimeError(f"Music layout counts total {sum(edge_counts.values())}; expected {g.lamps} LEDs.")
+
+    pw_cat = shutil.which("pw-cat")
+    if not pw_cat:
+        raise RuntimeError("pw-cat is missing. Install PipeWire tools (pipewire-bin) and try again.")
+    rate = 44100
+    samples_per_block = 1024
+    window_size = 4096
+    command = [pw_cat, "--record", "--raw", "--format", "s16", "--rate", str(rate),
+               "--channels", "1", "--target", "auto", "--latency", "60ms",
+               "--properties", '{"stream.capture.sink": true}', "-"]
+    audio = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, bufsize=0)
+    errors = []
+    blocks = queue.Queue(maxsize=4)
+    reader_errors = []
+    stop_reader = threading.Event()
+
+    def drain_errors():
+        if audio.stderr:
+            for line in iter(audio.stderr.readline, b""):
+                errors.append(line.decode(errors="replace").strip())
+
+    threading.Thread(target=drain_errors, daemon=True).start()
+
+    def capture_audio():
+        needed = samples_per_block * 2
+        while not stop_reader.is_set():
+            chunk = bytearray()
+            while len(chunk) < needed and not stop_reader.is_set():
+                part = audio.stdout.read(needed - len(chunk))
+                if not part:
+                    reader_errors.append("PipeWire audio stream ended.")
+                    return
+                chunk.extend(part)
+            samples = np.frombuffer(chunk, dtype="<i2").astype(np.float32) / 32768.0
+            try:
+                blocks.put_nowait(samples)
+            except queue.Full:
+                try:
+                    blocks.get_nowait()  # discard stale audio so LEDs stay in sync with live playback
+                except queue.Empty:
+                    pass
+                try:
+                    blocks.put_nowait(samples)
+                except queue.Full:
+                    pass
+
+    reader = threading.Thread(target=capture_audio, daemon=True)
+    reader.start()
+
+    try:
+        labels = {"combined": "Combined", "bass": "Bass", "treble": "Treble", "voice": "Voice emphasis (approx.)"}
+        print(f"{labels[mode]} music mode running at up to {fps} FPS; capturing PipeWire output. Ctrl+C to stop.", flush=True)
+        levels = np.zeros(4, dtype=np.float32)
+        audio_history = np.zeros(window_size, dtype=np.float32)
+        previous_spectrum = np.zeros(window_size // 2 + 1, dtype=np.float32)
+        previous_bass_level = 0.0
+        bass_hit = 0.0
+        treble_hit = 0.0
+        palette_hue = colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
+        last_report = time.monotonic()
+        frequencies = np.fft.rfftfreq(window_size, 1 / rate)
+        bands = ((35, 150), (150, 400), (400, 3400), (3400, 10000))
+        masks = [(frequencies >= low) & (frequencies < high) for low, high in bands]
+        voice_mask = (frequencies >= 250) & (frequencies < 3400)
+        high_mask = masks[3]
+        window = np.hanning(window_size).astype(np.float32)
+        while True:
+            frame_start = time.monotonic()
+            try:
+                samples = blocks.get(timeout=0.5)
+            except queue.Empty:
+                if audio.poll() is not None or reader_errors:
+                    detail = "; ".join((errors + reader_errors)[-3:]) or "PipeWire ended the audio stream."
+                    raise RuntimeError(f"Could not capture system audio: {detail}")
+                continue
+            audio_history[:-samples_per_block] = audio_history[samples_per_block:]
+            audio_history[-samples_per_block:] = samples
+            while True:
+                try:
+                    samples = blocks.get_nowait()
+                except queue.Empty:
+                    break
+                audio_history[:-samples_per_block] = audio_history[samples_per_block:]
+                audio_history[-samples_per_block:] = samples
+            spectrum = np.abs(np.fft.rfft(audio_history * window)) * (2.0 / max(1.0, float(window.sum())))
+            energies = []
+            for mask in masks:
+                energy = float(np.sqrt(np.sum(spectrum[mask] ** 2) * 0.5)) if np.any(mask) else 0.0
+                gain = 8.0 + 2.0 * sensitivity
+                energies.append(1.0 - math.exp(-energy * gain))
+            current = np.asarray(energies, dtype=np.float32)
+            for index, target in enumerate(current):
+                rate_factor = 0.70 if target > levels[index] else 0.28
+                levels[index] += (target - levels[index]) * rate_factor
+
+            bass_rise = max(0.0, float(levels[0]) - previous_bass_level)
+            bass_hit = max(bass_hit * 0.62, min(1.0, bass_rise * 5.0))
+            high_flux = float(np.maximum(spectrum[high_mask] - previous_spectrum[high_mask], 0).sum())
+            high_total = float(previous_spectrum[high_mask].sum())
+            treble_hit = max(treble_hit * 0.52, min(1.0, high_flux / max(0.015, high_total * 0.8)))
+            previous_spectrum = spectrum.copy()
+            previous_bass_level = float(levels[0])
+
+            rms = float(np.sqrt(np.mean(audio_history * audio_history)))
+            gate = min(1.0, max(0.0, (rms - 0.002) / 0.025))
+            centroid = float(np.sum(frequencies * spectrum) / max(1e-9, float(spectrum.sum())))
+            centroid_color = min(1.0, max(0.0, (math.log2(max(80.0, centroid) / 80.0)) / math.log2(10000.0 / 80.0)))
+            voice_centroid = float(np.sum(frequencies[voice_mask] * spectrum[voice_mask]) /
+                                   max(1e-9, float(spectrum[voice_mask].sum())))
+            voice_color = min(1.0, max(0.0, (voice_centroid - 250.0) / (3400.0 - 250.0)))
+            target_hue = (colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
+                          + (centroid_color - 0.5) * 0.20 + (voice_color - 0.5) * 0.06) % 1.0
+            hue_delta = (target_hue - palette_hue + 0.5) % 1.0 - 0.5
+            palette_hue = (palette_hue + hue_delta * 0.035) % 1.0
+
+            if time.monotonic() - last_report >= 1.0:
+                print("Audio levels · bass {:.2f} · low-mid {:.2f} · voice-range {:.2f} · treble {:.2f}".format(*levels), flush=True)
+                last_report = time.monotonic()
+
+            if mode == "bass":
+                hue = (palette_hue - 0.035) % 1.0
+                value = 0.025 + 0.82 * float(levels[0]) + 0.40 * bass_hit
+                saturation = 0.90
+            elif mode == "treble":
+                hue = (palette_hue + 0.10) % 1.0
+                value = 0.02 + 0.65 * float(levels[3]) + 0.62 * treble_hit
+                saturation = 0.90 - 0.55 * treble_hit
+            elif mode == "voice":
+                hue = (palette_hue + (voice_color - 0.5) * 0.14) % 1.0
+                value = 0.025 + 0.92 * float(levels[2])
+                saturation = 0.78
+            else:
+                # Combined is spatially mapped around the monitor perimeter:
+                # bass owns the bottom, voice/mids the two sides, treble the
+                # top. A kick brightens the whole frame, then decays smoothly.
+                # This preserves the information that was lost when all 94
+                # LEDs were collapsed to one HSV color.
+                def rgb_at(hue, sat, val):
+                    val = min(1.0, max(0.0, val * gate))
+                    rgb = colorsys.hsv_to_rgb(hue % 1.0, min(1.0, max(0.0, sat)), val)
+                    return tuple(round(channel * 255) for channel in rgb)
+
+                bass = float(levels[0])
+                low_mid = float(levels[1])
+                voice = float(levels[2])
+                treble = float(levels[3])
+                shared_beat = bass_hit
+                base_hue = colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
+                bass_color = rgb_at(base_hue - 0.035, 0.96,
+                                    0.018 + 0.72 * bass + 0.72 * shared_beat)
+                voice_hue = base_hue + (voice_color - 0.5) * 0.12 + (centroid_color - 0.5) * 0.035
+                voice_color_rgb = rgb_at(voice_hue, 0.82,
+                                         0.018 + 0.62 * voice + 0.24 * low_mid + 0.18 * shared_beat)
+                treble_color = rgb_at(base_hue + 0.13 + (centroid_color - 0.5) * 0.04,
+                                      0.86 - 0.40 * treble_hit,
+                                      0.015 + 0.62 * treble + 0.58 * treble_hit + 0.12 * shared_beat)
+                sides_rgb = voice_color_rgb
+                colors = ([bass_color] * edge_counts["bottom"]
+                          + [sides_rgb] * edge_counts["left"]
+                          + [treble_color] * edge_counts["top"]
+                          + [sides_rgb] * edge_counts["right"])
+                send_frame_resilient(g, colors)
+                time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
+                continue
+            value = min(1.0, max(0.0, value * gate))
+            rgb = colorsys.hsv_to_rgb(hue, min(1.0, max(0.0, saturation)), value)
+            color = tuple(round(channel * 255) for channel in rgb)
+            send_frame_resilient(g, [color] * max(1, g.lamps))
+            time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
+    finally:
+        stop_reader.set()
+        if audio.poll() is None:
+            audio.terminate()
+            try:
+                audio.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                audio.kill()
+        reader.join(timeout=0.5)
+        if audio.stdout:
+            audio.stdout.close()
+        if audio.stderr:
+            audio.stderr.close()
+
+
+# --------------------------------------------------------------------- CLI --
+def main():
+    ap = argparse.ArgumentParser(description="Mitsuko Phantom G1 controller")
+    ap.add_argument("--path", help="hidraw path (default: auto-detect 1a86:fe07)")
+    ap.add_argument("--order", default="RGB", help="channel order if colors look wrong, e.g. GRB")
+    ap.add_argument("-v", "--verbose", action="store_true", help="print raw packets")
+    ap.add_argument("--leds", type=int, default=0, help="LED count (default: saved value from `count`, else 60)")
+    ap.add_argument("--proto", choices=["section", "sync"], default="section",
+                    help="how per-LED frames are sent: section (0x86, default) or sync (0x80)")
+    ap.add_argument("--chunk", type=int, default=11, help="LED groups per 0x86 frame (max 49)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("info")
+    c = sub.add_parser("color"); [c.add_argument(x, type=int) for x in ("r", "g", "b")]
+    sub.add_parser("off")
+    sub.add_parser("count", help="find how many LEDs the strip has (interactive) and save it")
+    gp = sub.add_parser("groups", help="send raw LED groups: first R G B last [first R G B last ...]")
+    gp.add_argument("values", type=int, nargs="+")
+    sub.add_parser("rgbtest", help="show pure red, green, blue, white to check the channel order")
+    b = sub.add_parser("brightness"); b.add_argument("value", type=int)
+    e = sub.add_parser("effect"); e.add_argument("id", type=int); e.add_argument("param", type=int, nargs="?", default=0)
+    sp = sub.add_parser("speed"); sp.add_argument("value", type=int)
+    ch = sub.add_parser("chase", help="walk one white LED along the strip to learn the layout")
+    ch.add_argument("--start", type=int, default=1, help="first LED number to light")
+    ch.add_argument("--delay", type=float, default=0.15, help="seconds per LED")
+    ch.add_argument("--no-end", action="store_true", help="do not force the last group to end at 254")
+    s = sub.add_parser("screen", help="screen sync (X11)")
+    s.add_argument("--counts", default=None,
+                   help="LEDs per edge, e.g. bottom=30,left=20,top=30,right=20 (default: estimated)")
+    s.add_argument("--path-order", default="bottom:left,left:up,top:right,right:down",
+                   help="order the strip runs around the screen, as seen from the FRONT")
+    s.add_argument("--fps", type=int, default=20)
+    s.add_argument("--smooth", type=float, default=0.5, help="0 = none, 0.9 = very smooth")
+    s.add_argument("--depth", type=float, default=0.12, help="fraction of screen edge to sample")
+    s.add_argument("--monitor", type=int, default=1)
+    an = sub.add_parser("animate", help="run a software-generated lighting effect")
+    an.add_argument("name", choices=["color_flow", "aurora", "breathe", "comet", "ember"])
+    an.add_argument("--fps", type=int, default=20)
+    an.add_argument("--color", default="4c8dff", help="base color for Breathe and Comet, hex RGB")
+    mu = sub.add_parser("music", help="react to live system audio via PipeWire")
+    mu.add_argument("--fps", type=int, default=20)
+    mu.add_argument("--sensitivity", type=float, default=1.5, help="audio response gain, 0.2–5")
+    mu.add_argument("--mode", choices=["combined", "bass", "treble", "voice"], default="combined")
+    mu.add_argument("--color", default="4c8dff", help="palette anchor color in hex RGB")
+    mu.add_argument("--counts", default="bottom=30,left=17,top=30,right=17",
+                    help="perimeter LED counts in strip order, used by Combined mode")
+    a = ap.parse_args()
+
+    g = G1(a.path, a.order, a.verbose, a.proto, a.chunk)
+    inf = g.info()
+    if a.leds:
+        g.lamps = a.leds
+    if a.cmd == "info":
+        print(inf or "No reply to info request (device may still work; try -v).")
+        return
+    if a.cmd == "color":
+        g.solid(a.r, a.g, a.b)
+        cfg = load_config()
+        cfg["color"] = [a.r, a.g, a.b]
+        cfg.pop("effect", None)
+        save_config(cfg)
+    elif a.cmd == "off":
+        reply = g.turn_off()
+        g.solid(0, 0, 0)
+        cfg = load_config()
+        cfg.pop("effect", None)
+        save_config(cfg)
+        print("Turn-off acknowledged." if reply else "Turn-off command sent.")
+    elif a.cmd == "count":
+        n = find_count(g)
+        if n:
+            print(f"\nThe strip has {n} LEDs. Lighting all of them green to confirm...")
+            g.groups([1, 0, 255, 0, n, n + 1, 0, 0, 0, 254])
+            time.sleep(4)
+            g.solid(0, 0, 0)
+            cfg = load_config()
+            cfg["leds"] = n
+            save_config(cfg)
+            print(f"Saved leds={n} to {CONFIG}")
+    elif a.cmd == "groups":
+        if len(a.values) % 5:
+            sys.exit("groups needs a multiple of 5 numbers: first R G B last ...")
+        g.groups(a.values)
+    elif a.cmd == "rgbtest":
+        for name, col in (("RED", (255, 0, 0)), ("GREEN", (0, 255, 0)), ("BLUE", (0, 0, 255)), ("WHITE", (255, 255, 255))):
+            print("Now showing:", name)
+            g.solid(*col)
+            time.sleep(2)
+        g.solid(0, 0, 0)
+    elif a.cmd == "brightness":
+        reply = g.brightness(a.value)
+        if reply:
+            print(f"Brightness acknowledged: {reply[5]}/255")
+            time.sleep(0.02)
+            color = load_config().get("color")
+            if isinstance(color, list) and len(color) == 3 and all(isinstance(c, int) and 0 <= c <= 255 for c in color):
+                if load_config().get("effect"):
+                    print("Left the selected device effect running.")
+                else:
+                    g.solid(*color)
+                    print("Reapplied the saved static color.")
+            else:
+                print("No saved static color; set a color once, then brightness can be reapplied.")
+        else:
+            print("Brightness command sent, but the device did not acknowledge it.")
+    elif a.cmd == "effect":
+        reply = g.effect(a.id, a.param)
+        cfg = load_config()
+        cfg["effect"] = [a.id, a.param]
+        save_config(cfg)
+        print("Effect acknowledged." if reply else "Effect command sent.")
+    elif a.cmd == "speed":
+        g.speed(a.value)
+    elif a.cmd == "chase":
+        n = a.leds or g.lamps
+        g.no_end = a.no_end
+        for i in range(a.start - 1, n):
+            g.frame_colors([(255, 255, 255) if j == i else (0, 0, 0) for j in range(n)])
+            print(f"LED {i + 1}/{n}", end="\r", flush=True)
+            time.sleep(a.delay)
+        print()
+    elif a.cmd == "screen":
+        counts = parse_counts(a.counts) if a.counts else None
+        if counts and sum(counts.values()) != g.lamps:
+            print(f"Warning: counts add up to {sum(counts.values())} but the LED count is {g.lamps}.")
+        try:
+            screen_sync(g, counts, parse_path(a.path_order), a.fps, a.smooth, a.depth, a.monitor)
+        except KeyboardInterrupt:
+            turn_off_if_connected(g)
+    elif a.cmd == "animate":
+        try:
+            color = a.color.lstrip("#")
+            if len(color) != 6:
+                raise ValueError
+            base_color = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+        except ValueError:
+            sys.exit("--color must be a six-digit hex RGB value, such as 4c8dff.")
+        cfg = load_config()
+        cfg.pop("effect", None)
+        save_config(cfg)
+        try:
+            run_animation(g, a.name, a.fps, base_color)
+        except KeyboardInterrupt:
+            turn_off_if_connected(g)
+    elif a.cmd == "music":
+        if not 1 <= a.fps <= 60:
+            sys.exit("--fps must be between 1 and 60.")
+        if not 0.2 <= a.sensitivity <= 5:
+            sys.exit("--sensitivity must be between 0.2 and 5.")
+        try:
+            color = a.color.lstrip("#")
+            if len(color) != 6:
+                raise ValueError
+            base_color = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+            edge_counts = parse_edge_counts(a.counts)
+        except ValueError:
+            sys.exit("--color must be a six-digit hex RGB value and --counts must use bottom,left,top,right.")
+        cfg = load_config()
+        cfg.pop("effect", None)
+        save_config(cfg)
+        try:
+            run_music(g, a.fps, a.sensitivity, a.mode, base_color, edge_counts)
+        except KeyboardInterrupt:
+            turn_off_if_connected(g)
+        except RuntimeError as exc:
+            print(str(exc), file=sys.stderr)
+            sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
