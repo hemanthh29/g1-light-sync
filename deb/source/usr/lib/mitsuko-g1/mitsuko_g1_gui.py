@@ -735,8 +735,10 @@ class App(tk.Tk):
     def _set_notification_color(self, color):
         color = "#" + color.lstrip("#").upper()
         self.notification_color.set(color)
-        if hasattr(self, "notification_color_value"):
-            self.notification_color_value.set(color)
+        preview = getattr(self, "notification_color_preview", None)
+        if preview is not None and preview.winfo_exists():
+            preview.delete("all")
+            preview.create_oval(3, 3, 25, 25, fill=color, outline=ACCENT, width=2)
         self._refresh_notification_color_swatches()
         self._save_notification_effect_settings()
 
@@ -1632,9 +1634,12 @@ class App(tk.Tk):
             color_row, text="Choose color…", command=self._choose_notification_color)
         self.notification_color_btn.pack(side="left", padx=(4, 10))
         self.manual_widgets.append(self.notification_color_btn)
-        self.notification_color_value = tk.StringVar(value=self.notification_color.get())
-        ttk.Label(color_row, textvariable=self.notification_color_value,
-                  style="Card.TLabel").pack(side="left")
+        self.notification_color_preview = tk.Canvas(
+            color_row, width=28, height=28, bg=PANEL, highlightthickness=0)
+        self.notification_color_preview.pack(side="left", padx=(2, 8))
+        self.notification_color_preview.create_oval(3, 3, 25, 25,
+                                                    fill=self.notification_color.get(),
+                                                    outline=ACCENT, width=2)
         self.notification_preview_btn = RoundedButton(
             color_row, text="Preview pattern", style="Accent.TButton",
             command=self._preview_notification_effect)
