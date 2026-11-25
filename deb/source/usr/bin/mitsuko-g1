@@ -1,4 +1,19 @@
 #!/bin/sh
+config_home=${XDG_CONFIG_HOME:-"$HOME/.config"}/mitsuko-g1
+disabled_marker=$config_home/phone_relay_disabled
+user_unit=${XDG_CONFIG_HOME:-"$HOME/.config"}/systemd/user/mitsuko-phone-bridge.service
+
+# Replace an obsolete per-user unit from older installs if its relay script
+# has disappeared. Keep a copy for inspection, then use the packaged unit.
+if [ -f "$user_unit" ]; then
+    relay_script=$(sed -n 's|^ExecStart=/usr/bin/python3 ||p' "$user_unit" | head -n 1)
+    if [ -n "$relay_script" ] && [ ! -f "$relay_script" ]; then
+        mv "$user_unit" "$user_unit.stale.$(date +%Y%m%d%H%M%S)" 2>/dev/null || true
+    fi
+fi
+
 systemctl --user daemon-reload >/dev/null 2>&1 || true
-systemctl --user start mitsuko-phone-bridge.service >/dev/null 2>&1 || true
+if [ ! -e "$disabled_marker" ]; then
+    systemctl --user enable --now mitsuko-phone-bridge.service >/dev/null 2>&1 || true
+fi
 exec /usr/bin/python3 /usr/lib/mitsuko-g1/mitsuko_g1_gui.py "$@"

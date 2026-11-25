@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import ast
+import colorsys
 import ctypes
 import fcntl
 import json
 import math
 import os
+import re
 import signal
 import queue
 import shutil
@@ -19,7 +21,7 @@ import time
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
-from tkinter import colorchooser, messagebox, simpledialog, ttk
+from tkinter import messagebox, simpledialog, ttk
 
 
 ROOT = Path(__file__).resolve().parent
@@ -28,6 +30,8 @@ CONFIG_HOME = Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) /
 CONFIG = CONFIG_HOME / "mitsuko_g1.json"
 GUI_CONFIG = CONFIG_HOME / "mitsuko_g1_gui.json"
 PHONE_PAIRING = CONFIG_HOME / "phone_pairing.json"
+PHONE_RELAY_DISABLED = CONFIG_HOME / "phone_relay_disabled"
+PHONE_RELAY_SERVICE = "mitsuko-phone-bridge.service"
 RUNTIME_HOME = Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp/mitsuko-g1-{os.getuid()}"))
 INSTANCE_SOCKET = RUNTIME_HOME / "mitsuko-g1.sock"
 INSTANCE_LOCK = RUNTIME_HOME / "mitsuko-g1.lock"
@@ -537,6 +541,7 @@ class App(tk.Tk):
         style.configure("PageTitle.TLabel", background=BG, foreground=TEXT, font=(FONT, 20, "bold"))
         style.configure("PageSub.TLabel", background=BG, foreground=MUTED, font=(FONT, 10))
         style.configure("Section.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 12, "bold"))
+        style.configure("RelayCode.TLabel", background=PANEL, foreground=ACCENT, font=(FONT, 20, "bold"))
         style.configure("Status.TLabel", background=PANEL, foreground=GREEN, font=(FONT, 10, "bold"))
         style.configure("TButton", font=(FONT, 10), padding=(12, 9), background=PANEL_ALT, foreground=TEXT, borderwidth=0)
         style.map("TButton", background=[("active", "#20372f"), ("disabled", "#17211e")], foreground=[("disabled", MUTED)])
@@ -854,32 +859,201 @@ class App(tk.Tk):
         self._show_page("Music")
 
     def show_phone_pairing(self):
-        try:
-            pairing = json.loads(PHONE_PAIRING.read_text())
-            pin = str(pairing.get("pin", ""))
-        except (OSError, ValueError):
-            pin = ""
-        addresses = []
-        try:
-            result = subprocess.run(["ip", "-4", "-o", "addr", "show", "scope", "global"],
-                                    capture_output=True, text=True, timeout=3)
-            for line in result.stdout.splitlines():
-                fields = line.split()
-                if len(fields) >= 4:
-                    address = fields[3].split("/", 1)[0]
-                    if not address.startswith(("127.", "169.254.")):
-                        addresses.append(address)
-        except (OSError, subprocess.TimeoutExpired):
-            pass
-        if not pin:
-            messagebox.showerror("Phone Wi-Fi setup", "The phone relay is not running yet. Open Mitsuko G1 and try again.", parent=self)
+        window = getattr(self, "_phone_setup_window", None)
+        if window is not None and window.winfo_exists():
+            window.deiconify()
+            window.lift()
+            window.focus_force()
             return
-        host = ", ".join(dict.fromkeys(addresses)) or "No Wi-Fi address found"
-        messagebox.showinfo("Connect phone over Wi-Fi",
-            "Connect your phone and laptop to the same Wi-Fi network.\n\n"
-            f"Laptop address: {host}\nPairing code: {pin}\n\n"
-            "In the Mitsuko G1 phone app, choose Wi-Fi setup and enter the laptop address and pairing code.\n"
-            "The code is for pairing only; the app saves a private access token afterward.", parent=self)
+
+        window = tk.Toplevel(self)
+        self._phone_setup_window = window
+        window.title("Phone Wi-Fi setup · Mitsuko G1")
+        window.configure(bg=BG)
+        window.transient(self)
+        window.resizable(False, False)
+        window.geometry("650x630")
+        if self.logo_image is not None:
+            try:
+                window.iconphoto(True, self.logo_image)
+            except tk.TclError:
+                pass
+
+        shell = RoundedCard(window, padding=8, fill=BG)
+        shell.pack(fill="both", expand=True, padx=14, pady=14)
+        heading = RoundedCard(shell, padding=16)
+        heading.pack(fill="x", pady=(0, GAP))
+        heading_line = ttk.Frame(heading, style="Card.TFrame")
+        heading_line.pack(fill="x")
+        heading_text = ttk.Frame(heading_line, style="Card.TFrame")
+        heading_text.pack(side="left", fill="x", expand=True)
+        ttk.Label(heading_text, text="Phone Wi-Fi setup", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(heading_text, text="Keep the relay ready while Mitsuko is closed.",
+                  style="Sub.TLabel").pack(anchor="w", pady=(3, 0))
+
+        def close_window():
+            self._phone_setup_window = None
+            window.destroy()
+
+        RoundedButton(heading_line, text="Done", command=close_window).pack(side="right")
+        window.protocol("WM_DELETE_WINDOW", close_window)
+
+        relay_card = self._card(shell, padding=15)
+        relay_card.pack(fill="x", pady=(0, GAP))
+        relay_top = ttk.Frame(relay_card, style="Card.TFrame")
+        relay_top.pack(fill="x")
+        relay_dot = tk.Canvas(relay_top, width=16, height=16, bg=PANEL, highlightthickness=0)
+        relay_dot.pack(side="left", padx=(0, 9))
+        relay_dot_id = relay_dot.create_oval(3, 3, 13, 13, fill=MUTED, outline="")
+        relay_title = ttk.Frame(relay_top, style="Card.TFrame")
+        relay_title.pack(side="left", fill="x", expand=True)
+        ttk.Label(relay_title, text="Phone relay", style="Section.TLabel").pack(anchor="w")
+        relay_state = tk.StringVar(value="Checking relay…")
+        ttk.Label(relay_title, textvariable=relay_state, style="Muted.Card.TLabel").pack(anchor="w", pady=(3, 0))
+        relay_enabled = tk.BooleanVar(value=False)
+        relay_switch = ToggleSwitch(relay_top, relay_enabled)
+        relay_switch.pack(side="right", padx=(12, 0))
+        ttk.Label(relay_card,
+                  text="When on, the background service starts with your desktop and stays available after you close Mitsuko.",
+                  style="Muted.Card.TLabel", wraplength=520).pack(anchor="w", pady=(13, 0))
+
+        connection_card = self._card(shell, padding=15)
+        connection_card.pack(fill="x", pady=(0, GAP))
+        ttk.Label(connection_card, text="CONNECT YOUR PHONE", style="Muted.Card.TLabel").pack(anchor="w")
+        address_var = tk.StringVar(value="Looking for this laptop’s Wi-Fi address…")
+        pin_var = tk.StringVar(value="Waiting for relay")
+        ttk.Label(connection_card, text="Laptop address", style="Sub.TLabel").pack(anchor="w", pady=(13, 2))
+        ttk.Label(connection_card, textvariable=address_var, style="Section.TLabel",
+                  wraplength=540).pack(anchor="w")
+        ttk.Label(connection_card, text="Pairing code", style="Sub.TLabel").pack(anchor="w", pady=(12, 2))
+        ttk.Label(connection_card, textvariable=pin_var, style="RelayCode.TLabel").pack(anchor="w")
+        relay_note = tk.StringVar(value="Connect both devices to the same Wi-Fi, then enter these details in the phone app.")
+        ttk.Label(connection_card, textvariable=relay_note, style="Muted.Card.TLabel",
+                  wraplength=540).pack(anchor="w", pady=(10, 0))
+        actions = ttk.Frame(connection_card, style="Card.TFrame")
+        actions.pack(fill="x", pady=(14, 0))
+        RoundedButton(actions, text="Refresh details", command=lambda: refresh_details()).pack(side="left")
+
+        relay_busy = {"value": False}
+
+        def set_relay(enabled):
+            if relay_busy["value"]:
+                return
+            relay_busy["value"] = True
+            relay_switch.configure(state="disabled")
+            relay_state.set("Starting relay…" if enabled else "Stopping relay…")
+            relay_dot.itemconfigure(relay_dot_id, fill=ACCENT if enabled else MUTED)
+            relay_note.set("Saving background service setting…")
+            outcome = {}
+
+            def worker():
+                try:
+                    if enabled:
+                        try:
+                            PHONE_RELAY_DISABLED.unlink()
+                        except FileNotFoundError:
+                            pass
+                        command = ["systemctl", "--user", "enable", "--now", PHONE_RELAY_SERVICE]
+                    else:
+                        PHONE_RELAY_DISABLED.parent.mkdir(parents=True, exist_ok=True)
+                        PHONE_RELAY_DISABLED.write_text("disabled\n")
+                        command = ["systemctl", "--user", "disable", "--now", PHONE_RELAY_SERVICE]
+                    subprocess.run(["systemctl", "--user", "daemon-reload"],
+                                   capture_output=True, text=True, timeout=8, check=True)
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=12)
+                    if result.returncode != 0:
+                        detail = (result.stderr or result.stdout).strip()
+                        raise RuntimeError(detail or "systemd could not update the relay.")
+                    outcome["ok"] = True
+                except Exception as exc:
+                    if not enabled:
+                        try:
+                            PHONE_RELAY_DISABLED.unlink()
+                        except OSError:
+                            pass
+                    outcome["error"] = str(exc)
+
+            threading.Thread(target=worker, daemon=True).start()
+
+            def finish_when_ready():
+                if not window.winfo_exists():
+                    return
+                if "ok" not in outcome and "error" not in outcome:
+                    window.after(100, finish_when_ready)
+                    return
+                relay_busy["value"] = False
+                relay_switch.configure(state="normal")
+                if "error" in outcome:
+                    relay_note.set(f"Could not change relay: {outcome['error']}")
+                else:
+                    relay_note.set("Connect both devices to the same Wi-Fi, then enter these details in the phone app.")
+                refresh_details()
+
+            window.after(100, finish_when_ready)
+
+        relay_switch.command = lambda: set_relay(bool(relay_enabled.get()))
+
+        def read_addresses():
+            addresses = []
+            try:
+                result = subprocess.run(["ip", "-4", "-o", "addr", "show", "scope", "global"],
+                                        capture_output=True, text=True, timeout=3)
+                for line in result.stdout.splitlines():
+                    fields = line.split()
+                    if len(fields) >= 4:
+                        address = fields[3].split("/", 1)[0]
+                        if not address.startswith(("127.", "169.254.")):
+                            addresses.append(address)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+            return ", ".join(dict.fromkeys(addresses)) or "No Wi-Fi address found"
+
+        def refresh_details():
+            if not window.winfo_exists():
+                return
+            try:
+                active_result = subprocess.run(["systemctl", "--user", "is-active", PHONE_RELAY_SERVICE],
+                                               capture_output=True, text=True, timeout=3)
+                enabled_result = subprocess.run(["systemctl", "--user", "is-enabled", PHONE_RELAY_SERVICE],
+                                                capture_output=True, text=True, timeout=3)
+                active = active_result.returncode == 0 and active_result.stdout.strip() == "active"
+                enabled = enabled_result.returncode == 0 and enabled_result.stdout.strip() == "enabled"
+                if not relay_busy["value"]:
+                    relay_enabled.set(enabled)
+                if active and enabled:
+                    relay_state.set("On · running in the background")
+                    relay_dot.itemconfigure(relay_dot_id, fill=ACCENT)
+                elif active:
+                    relay_state.set("Running now · not set to start with your desktop")
+                    relay_dot.itemconfigure(relay_dot_id, fill="#f0bd68")
+                elif enabled:
+                    relay_state.set("Enabled · waiting for the relay to start")
+                    relay_dot.itemconfigure(relay_dot_id, fill="#f0bd68")
+                else:
+                    relay_state.set("Off")
+                    relay_dot.itemconfigure(relay_dot_id, fill=MUTED)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                relay_state.set("Could not read relay status")
+                relay_note.set(str(exc))
+            try:
+                pairing = json.loads(PHONE_PAIRING.read_text())
+                pin = str(pairing.get("pin", ""))
+                pin_var.set(pin if len(pin) == 8 and pin.isdigit() else "Waiting for relay")
+            except (OSError, ValueError, TypeError):
+                pin_var.set("Waiting for relay")
+            address_var.set(read_addresses())
+
+        refresh_details()
+
+        def periodic_refresh():
+            if window.winfo_exists():
+                refresh_details()
+                window.after(2500, periodic_refresh)
+
+        window.after(2500, periodic_refresh)
+        window.bind("<Escape>", lambda _event: close_window())
+        window.grab_set()
+        window.focus_force()
 
     def _show_page(self, name):
         self.pages[name].tkraise()
@@ -1777,9 +1951,173 @@ class App(tk.Tk):
             messagebox.showerror("Could not start music sync", str(exc), parent=self)
 
     def choose_color(self):
-        selected = colorchooser.askcolor(self.color, parent=self, title="Choose LED color")[1]
-        if selected:
-            self._set_color_preview(selected)
+        picker = tk.Toplevel(self)
+        picker.title("Choose LED color · Mitsuko G1")
+        picker.configure(bg=BG)
+        picker.transient(self)
+        picker.resizable(False, False)
+        picker.geometry("590x610")
+        if self.logo_image is not None:
+            try:
+                picker.iconphoto(True, self.logo_image)
+            except tk.TclError:
+                pass
+
+        shell = RoundedCard(picker, padding=8, fill=BG)
+        shell.pack(fill="both", expand=True, padx=14, pady=14)
+        card = self._card(shell, padding=15)
+        card.pack(fill="both", expand=True)
+        ttk.Label(card, text="Choose an LED color", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(card, text="Pick a shade, choose its hue, or enter a hex value.",
+                  style="Sub.TLabel").pack(anchor="w", pady=(3, 14))
+
+        sv_width, sv_height = 360, 220
+        sv_canvas = tk.Canvas(card, width=sv_width, height=sv_height, bg=FIELD_BG,
+                              highlightthickness=0, cursor="crosshair")
+        sv_canvas.pack(anchor="center")
+        ttk.Label(card, text="Hue", style="Muted.Card.TLabel").pack(anchor="w", pady=(13, 4))
+        hue_canvas = tk.Canvas(card, width=sv_width, height=22, bg=PANEL,
+                               highlightthickness=0, cursor="hand2")
+        hue_canvas.pack(anchor="center")
+
+        controls = ttk.Frame(card, style="Card.TFrame")
+        controls.pack(fill="x", pady=(17, 0))
+        hex_column = ttk.Frame(controls, style="Card.TFrame")
+        hex_column.pack(side="left", fill="x", expand=True)
+        ttk.Label(hex_column, text="HEX COLOR", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
+        hex_var = tk.StringVar(value=self.color.upper())
+        hex_field = RoundedField(hex_column, ttk.Entry, textvariable=hex_var, width=14,
+                                 font=(FONT, 11), justify="center")
+        hex_field.pack(anchor="w")
+        preview = tk.Canvas(controls, width=96, height=58, bg=PANEL, highlightthickness=0)
+        preview.pack(side="right", padx=(12, 0), anchor="s")
+
+        buttons = ttk.Frame(card, style="Card.TFrame")
+        buttons.pack(fill="x", pady=(18, 0))
+
+        def close_picker():
+            try:
+                picker.grab_release()
+            except tk.TclError:
+                pass
+            picker.destroy()
+
+        RoundedButton(buttons, text="Cancel", command=close_picker).pack(side="right")
+        apply_button = RoundedButton(buttons, text="Use this color", style="Accent.TButton")
+        apply_button.pack(side="right", padx=(0, 9))
+
+        red, green, blue = (int(self.color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
+        state = {"hue": hue, "saturation": saturation, "value": value,
+                 "color": self.color.upper(), "photo": None, "updating_hex": False}
+
+        def render_sv():
+            base_width, base_height = sv_width // 2, sv_height // 2
+            base_image = tk.PhotoImage(width=base_width, height=base_height)
+            for y in range(base_height):
+                shade = 1 - y / (base_height - 1)
+                row = []
+                for x in range(base_width):
+                    sat = x / (base_width - 1)
+                    r, g, b = colorsys.hsv_to_rgb(state["hue"], sat, shade)
+                    row.append(f"#{round(r * 255):02x}{round(g * 255):02x}{round(b * 255):02x}")
+                base_image.put("{" + " ".join(row) + "}", to=(0, y))
+            image = base_image.zoom(2, 2)
+            state["photo"] = image
+            sv_canvas.delete("all")
+            sv_canvas.create_image(0, 0, image=image, anchor="nw", tags="spectrum")
+            draw_marker()
+
+        def set_hex(value):
+            state["updating_hex"] = True
+            hex_var.set(value.upper())
+            state["updating_hex"] = False
+
+        def draw_preview(color):
+            preview.delete("all")
+            preview.create_oval(4, 4, 54, 54, fill=color, outline=BORDER, width=2)
+            preview.create_text(76, 29, text=color.upper(), fill=TEXT,
+                                font=(FONT, 9, "bold"), anchor="center")
+
+        def draw_marker():
+            x = state["saturation"] * (sv_width - 1)
+            y = (1 - state["value"]) * (sv_height - 1)
+            sv_canvas.delete("marker")
+            sv_canvas.create_oval(x - 7, y - 7, x + 7, y + 7,
+                                  outline="#07100e", width=3, tags="marker")
+            sv_canvas.create_oval(x - 6, y - 6, x + 6, y + 6,
+                                  outline="#ffffff", width=2, tags="marker")
+
+        def draw_hue_marker():
+            hue_canvas.delete("hue_marker")
+            x = state["hue"] * (sv_width - 1)
+            hue_canvas.create_line(x - 1, 0, x - 1, 22, fill="#07100e", width=4,
+                                   tags="hue_marker")
+            hue_canvas.create_line(x, 0, x, 22, fill="#ffffff", width=2,
+                                   tags="hue_marker")
+
+        def update_selection(update_input=True):
+            r, g, b = colorsys.hsv_to_rgb(state["hue"], state["saturation"], state["value"])
+            color = "#" + "".join(f"{round(channel * 255):02X}" for channel in (r, g, b))
+            state["color"] = color
+            draw_preview(color)
+            if update_input:
+                set_hex(color)
+            draw_marker()
+
+        def choose_hue(event):
+            state["hue"] = max(0.0, min(1.0, event.x / max(1, sv_width - 1)))
+            render_sv()
+            draw_hue_marker()
+            update_selection()
+
+        def choose_shade(event):
+            state["saturation"] = max(0.0, min(1.0, event.x / max(1, sv_width - 1)))
+            state["value"] = 1 - max(0.0, min(1.0, event.y / max(1, sv_height - 1)))
+            update_selection()
+
+        def color_from_hex(*_args):
+            if state["updating_hex"]:
+                return
+            raw = hex_var.get().strip()
+            if not re.fullmatch(r"#?[0-9a-fA-F]{6}", raw):
+                return
+            color = "#" + raw.lstrip("#").upper()
+            r, g, b = (int(color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+            state["hue"], state["saturation"], state["value"] = colorsys.rgb_to_hsv(r, g, b)
+            state["color"] = color
+            render_sv()
+            draw_hue_marker()
+            draw_preview(color)
+
+        def accept_color():
+            value_text = hex_var.get().strip()
+            if not re.fullmatch(r"#?[0-9a-fA-F]{6}", value_text):
+                hex_field.field.focus_set()
+                return
+            color = "#" + value_text.lstrip("#").upper()
+            self._set_color_preview(color)
+            close_picker()
+
+        for position in range(sv_width):
+            color = "#" + "".join(f"{round(channel * 255):02x}" for channel in
+                                    colorsys.hsv_to_rgb(position / (sv_width - 1), 1, 1))
+            hue_canvas.create_line(position, 0, position, 22, fill=color)
+        hue_canvas.bind("<Button-1>", choose_hue)
+        hue_canvas.bind("<B1-Motion>", choose_hue)
+        sv_canvas.bind("<Button-1>", choose_shade)
+        sv_canvas.bind("<B1-Motion>", choose_shade)
+        hex_var.trace_add("write", color_from_hex)
+        apply_button.command = accept_color
+        picker.bind("<Return>", lambda _event: accept_color())
+        picker.bind("<Escape>", lambda _event: close_picker())
+        render_sv()
+        draw_hue_marker()
+        update_selection(update_input=False)
+        draw_preview(self.color)
+        picker.grab_set()
+        hex_field.field.focus_set()
+        hex_field.field.selection_range(0, "end")
 
     def set_color(self):
         r, g, b = (int(self.color[i:i + 2], 16) for i in (1, 3, 5))
