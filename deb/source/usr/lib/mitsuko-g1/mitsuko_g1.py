@@ -554,6 +554,53 @@ def run_animation(g, name, fps, base_color):
         time.sleep(max(0.0, interval - (time.monotonic() - frame_start)))
 
 
+def run_notification_effect(g, name, alert_color, base_color=None):
+    """Play one short alert pattern and finish at its steady background color."""
+    n = max(1, g.lamps)
+    base = tuple(base_color) if base_color is not None else (0, 0, 0)
+    alert = tuple(max(0, min(255, int(channel))) for channel in alert_color)
+
+    def send(colors):
+        send_frame_resilient(g, colors)
+
+    def hold(color, duration):
+        send([color] * n)
+        time.sleep(duration)
+
+    def blend(level):
+        level = max(0.0, min(1.0, level))
+        return tuple(round(old + (new - old) * level) for old, new in zip(base, alert))
+
+    if name == "single":
+        hold(alert, 0.24)
+        hold(base, 0.10)
+    elif name in {"double", "urgent"}:
+        count = 2 if name == "double" else 3
+        for _ in range(count):
+            hold(alert, 0.12 if name == "urgent" else 0.17)
+            hold(base, 0.10)
+    elif name == "breathe":
+        steps = 12
+        for index in range(steps + 1):
+            send([blend((index / steps) ** 2)] * n)
+            time.sleep(0.045)
+        for index in range(steps - 1, -1, -1):
+            send([blend((index / steps) ** 2)] * n)
+            time.sleep(0.045)
+    elif name == "ping":
+        width = max(4, min(10, round(n * 0.09)))
+        frames = max(12, min(32, n // 3))
+        for frame in range(frames):
+            head = round(frame * n / frames)
+            colors = [base] * n
+            for tail in range(width):
+                led = (head - tail) % n
+                colors[led] = blend(1.0 - tail / width)
+            send(colors)
+            time.sleep(0.045)
+        hold(base, 0.08)
+
+
 def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=None):
     """Capture PipeWire playback and render a responsive, palette-based music mode."""
     import numpy as np
@@ -778,6 +825,13 @@ def main():
     mu.add_argument("--treble-color", default=None, help="custom treble zone color in hex RGB")
     mu.add_argument("--counts", default="bottom=30,left=17,top=30,right=17",
                     help="perimeter LED counts in strip order, used by Combined mode")
+    notify = sub.add_parser("notification", help="play one desktop notification light pattern")
+    notify.add_argument("pattern", choices=["single", "double", "breathe", "ping", "urgent"])
+    notify.add_argument("r", type=int)
+    notify.add_argument("g", type=int)
+    notify.add_argument("b", type=int)
+    notify.add_argument("--base-color", nargs=3, type=int,
+                        help="steady RGB color between flashes; omit when the strip was off")
     a = ap.parse_args()
 
     g = G1(a.path, a.order, a.verbose, a.proto, a.chunk)
@@ -906,6 +960,10 @@ def main():
         except RuntimeError as exc:
             print(str(exc), file=sys.stderr)
             sys.exit(1)
+    elif a.cmd == "notification":
+        alert = tuple(max(0, min(255, channel)) for channel in (a.r, a.g, a.b))
+        base = tuple(max(0, min(255, channel)) for channel in a.base_color) if a.base_color else None
+        run_notification_effect(g, a.pattern, alert, base)
 
 
 if __name__ == "__main__":

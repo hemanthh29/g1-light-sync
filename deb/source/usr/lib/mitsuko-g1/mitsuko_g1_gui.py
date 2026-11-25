@@ -674,6 +674,17 @@ class App(tk.Tk):
         self.notification_flash_enabled.trace_add(
             "write", lambda *_args: self.notification_switch_text.set(
                 "On" if self.notification_flash_enabled.get() else "Off"))
+        saved_notification_effect = settings.get("notification_effect", "single")
+        if not isinstance(saved_notification_effect, str) or saved_notification_effect not in {
+                "single", "double", "breathe", "ping", "urgent"}:
+            saved_notification_effect = "single"
+        self.notification_effect = tk.StringVar(value=saved_notification_effect)
+        saved_notification_color = settings.get("notification_color", self.color)
+        if not isinstance(saved_notification_color, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", saved_notification_color):
+            saved_notification_color = self.color
+        self.notification_color = tk.StringVar(value="#" + saved_notification_color.lstrip("#").upper())
+        self.notification_effect_buttons = {}
+        self.notification_color_swatches = []
         self.notification_restore_state = self._valid_notification_state(settings.get("notification_restore_state"))
         saved_mode = settings.get("audio_mode", "combined")
         self.audio_mode = tk.StringVar(value=saved_mode if saved_mode in {"combined", "bass", "treble", "voice"} else "combined")
@@ -705,6 +716,48 @@ class App(tk.Tk):
         settings["notification_flash"] = bool(self.notification_flash_enabled.get())
         GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
 
+    def _save_notification_effect_settings(self):
+        try:
+            settings = json.loads(GUI_CONFIG.read_text())
+        except (OSError, ValueError):
+            settings = {}
+        settings["notification_effect"] = self.notification_effect.get()
+        settings["notification_color"] = self.notification_color.get()
+        GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+
+    def _select_notification_effect(self, name):
+        self.notification_effect.set(name)
+        for effect, button in self.notification_effect_buttons.items():
+            button.configure(style="ModeActive.TButton" if effect == name else "Mode.TButton")
+        self._save_notification_effect_settings()
+
+    def _set_notification_color(self, color):
+        color = "#" + color.lstrip("#").upper()
+        self.notification_color.set(color)
+        if hasattr(self, "notification_color_value"):
+            self.notification_color_value.set(color)
+        self._refresh_notification_color_swatches()
+        self._save_notification_effect_settings()
+
+    def _refresh_notification_color_swatches(self):
+        selected = self.notification_color.get().lower()
+        for swatch in self.notification_color_swatches:
+            if not swatch.winfo_exists():
+                continue
+            swatch.delete("all")
+            color = swatch.notification_color
+            swatch.create_oval(4, 4, 32, 32, fill=color,
+                               outline=ACCENT if color.lower() == selected else BORDER,
+                               width=3 if color.lower() == selected else 1)
+
+    def _choose_notification_color(self):
+        self.choose_color(
+            initial_color=self.notification_color.get(),
+            action_label="Use notification color",
+            subtitle="Choose the color used by notification patterns.",
+            on_select=self._set_notification_color,
+        )
+
     def _toggle_notification_flash(self):
         enabled = bool(self.notification_flash_enabled.get())
         self._save_notification_preference()
@@ -713,7 +766,7 @@ class App(tk.Tk):
                 self.notification_flash_enabled.set(False)
                 self._save_notification_preference()
                 return
-            self.details.set("Notification flash enabled · apply a solid color or turn LEDs off first")
+            self.details.set("Notification flash enabled · choose a pattern and alert color")
         else:
             self._stop_notification_monitor()
             self.details.set("Notification flash disabled")
@@ -774,8 +827,8 @@ class App(tk.Tk):
         settings.pop("notification_restore_state", None)
         GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
 
-    def _notification_flash(self):
-        if not self.notification_flash_enabled.get():
+    def _notification_flash(self, force=False):
+        if not force and not self.notification_flash_enabled.get():
             return
         if self.notification_flash_running:
             self.details.set("Notification flash is already in progress")
@@ -786,48 +839,61 @@ class App(tk.Tk):
             return
         restore = self.notification_restore_state
         if restore is None:
-            self.details.set("Notification received · apply a solid color or turn LEDs off first")
+            self.details.set("Notification pattern skipped · choose a solid color or turn LEDs off first")
             return
         if restore[0] == "effect":
             self.details.set("Notification flash skipped · lighting effects are left alone")
             return
-        flash_rgb = tuple(int(self.color[index:index + 2], 16) for index in (1, 3, 5))
+        flash_rgb = tuple(int(self.notification_color.get()[index:index + 2], 16) for index in (1, 3, 5))
         if restore[0] == "color":
             restore_rgb = tuple(restore[1:])
             distance = sum((current - saved) ** 2 for current, saved in zip(flash_rgb, restore_rgb)) ** 0.5
             if distance < 120:
                 flash_rgb = tuple(255 - channel for channel in flash_rgb)
-        flash_command = self._base_cmd() + ["color", *(str(channel) for channel in flash_rgb)]
+        effect = self.notification_effect.get()
+        effect_labels = {
+            "single": "Single pop", "double": "Double pulse", "breathe": "Soft breathe",
+            "ping": "Perimeter ping", "urgent": "Urgent triple",
+        }
+        flash_command = self._base_cmd() + ["notification", effect, *(str(channel) for channel in flash_rgb)]
         if restore[0] == "color":
+            flash_command += ["--base-color", *(str(channel) for channel in restore[1:])]
             restore_command = self._base_cmd() + ["color", *(str(channel) for channel in restore[1:])]
         else:
             restore_command = self._base_cmd() + ["off"]
         self.notification_flash_running = True
         self._set_manual_controls(False)
-        flash_hex = "#" + "".join(f"{channel:02X}" for channel in flash_rgb)
-        self.details.set(f"Notification received · flashing {flash_hex}")
+        action_label = "Previewing" if force else "Notification received"
+        self.details.set(f"{action_label} · {effect_labels[effect]}")
 
         def worker():
             error = ""
             restored = False
             try:
                 result = subprocess.run(flash_command, cwd=ROOT, env=self._env(),
-                                         capture_output=True, text=True, timeout=5)
+                                         capture_output=True, text=True, timeout=10)
                 if result.returncode != 0:
-                    raise RuntimeError((result.stderr or result.stdout).strip() or "Could not flash the strip.")
-                time.sleep(0.75)
-                if self.proc is None and self._external_sync_pid() is None:
+                    raise RuntimeError((result.stderr or result.stdout).strip() or "Could not play the notification pattern.")
+            except Exception as exc:
+                error = str(exc)
+            if (self.proc is None and self.pending_device_effect is None
+                    and self._external_sync_pid() is None):
+                try:
                     result = subprocess.run(restore_command, cwd=ROOT, env=self._env(),
                                             capture_output=True, text=True, timeout=5)
                     if result.returncode != 0:
                         raise RuntimeError((result.stderr or result.stdout).strip() or "Could not restore the previous light state.")
                     restored = True
-            except Exception as exc:
-                error = str(exc)
+                except Exception as exc:
+                    if not error:
+                        error = str(exc)
             self.messages.put(("notification_flash_complete", json.dumps({
                 "error": error, "restored": restored})))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    def _preview_notification_effect(self):
+        self._notification_flash(force=True)
 
     def _card(self, parent, padding=16):
         return RoundedCard(parent, padding=max(CARD_PAD, padding))
@@ -1440,7 +1506,7 @@ class App(tk.Tk):
         self._software_effect_group(software)
 
     def _build_controls_page(self, page):
-        self._page_heading(page, "Quick controls", "Set a steady color, adjust brightness, power, and notification flash.")
+        self._page_heading(page, "Quick controls", "Adjust brightness and power, or customize notification lighting.")
         notification = self._card(page, padding=14)
         notification.pack(fill="x", pady=(0, GAP))
         notification_header = ttk.Frame(notification, style="Card.TFrame")
@@ -1449,50 +1515,67 @@ class App(tk.Tk):
         self.notification_toggle = ToggleSwitch(
             notification_header, self.notification_flash_enabled, command=self._toggle_notification_flash)
         self.notification_toggle.pack(side="right")
+        self.manual_widgets.append(self.notification_toggle)
         ttk.Label(notification_header, textvariable=self.notification_switch_text,
                   style="Card.TLabel").pack(side="right", padx=(0, 10))
         ttk.Label(notification,
-                  text="Briefly flash the selected palette color when a desktop notification arrives.",
+                  text="Play a custom light pattern when a desktop notification arrives.",
                   style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(12, 4))
         ttk.Label(notification,
-                  text="Works when the strip is showing a solid color or is off. Built-in and app lighting effects, screen sync, and music sync are left alone.",
+                  text="Patterns run when the strip is off or showing a solid color. Active lighting effects and sync modes are left alone.",
                   style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
 
-        color_card = self._card(page, padding=17)
-        color_card.pack(fill="x", pady=(0, GAP))
-        ttk.Label(color_card, text="COLOR", style="Muted.Card.TLabel").pack(anchor="w")
-        ttk.Label(color_card, text="Choose a palette anchor or apply a solid color", style="Section.TLabel").pack(anchor="w", pady=(4, 16))
-        swatches = ttk.Frame(color_card, style="Card.TFrame")
-        swatches.pack(fill="x", pady=(0, 16))
-        self.palette_swatches = []
-        for name, color in (("Mint", "#46d6aa"), ("Blue", "#7ea7ff"),
-                            ("Violet", "#c49bff"), ("Coral", "#ff8a70"),
-                            ("Amber", "#ffd36d"), ("Soft white", "#f4f4f0")):
-            swatch = tk.Canvas(swatches, width=40, height=40, bg=PANEL, highlightthickness=0,
-                               cursor="hand2")
-            swatch.pack(side="left", padx=(0, 10))
-            swatch.bind("<Button-1>", lambda _event, value=color: self.select_palette_color(value))
-            swatch.bind("<Enter>", lambda _event, widget=swatch: widget.configure(cursor="hand2"))
-            swatch.palette_color = color
-            self.palette_swatches.append(swatch)
-            self.manual_widgets.append(swatch)
-        self._refresh_palette_swatches()
-        color_row = ttk.Frame(color_card, style="Card.TFrame")
+        ttk.Label(notification, text="PATTERN", style="Muted.Card.TLabel").pack(anchor="w", pady=(16, 8))
+        pattern_grid = ttk.Frame(notification, style="Card.TFrame")
+        pattern_grid.pack(fill="x")
+        effect_choices = (
+            ("single", "Single pop", "One clear pulse"),
+            ("double", "Double pulse", "Two quick flashes"),
+            ("breathe", "Soft breathe", "Fade up and down"),
+            ("ping", "Perimeter ping", "A light sweeps around"),
+            ("urgent", "Urgent triple", "Three quick pulses"),
+        )
+        for index, (name, label, description) in enumerate(effect_choices):
+            row, column = divmod(index, 3)
+            tile = ttk.Frame(pattern_grid, style="Card.TFrame")
+            tile.grid(row=row, column=column, sticky="ew",
+                      padx=(0, 10) if column < 2 else 0,
+                      pady=(0, 10) if row == 0 else (0, 0))
+            pattern_grid.columnconfigure(column, weight=1, uniform="notification-pattern")
+            button = RoundedButton(tile, text=label,
+                                   command=lambda value=name: self._select_notification_effect(value),
+                                   style="ModeActive.TButton" if self.notification_effect.get() == name else "Mode.TButton")
+            button.pack(fill="x")
+            ttk.Label(tile, text=description, style="Muted.Card.TLabel").pack(anchor="center", pady=(4, 0))
+            self.notification_effect_buttons[name] = button
+            self.manual_widgets.append(button)
+
+        ttk.Label(notification, text="ALERT COLOR", style="Muted.Card.TLabel").pack(anchor="w", pady=(8, 8))
+        color_row = ttk.Frame(notification, style="Card.TFrame")
         color_row.pack(fill="x")
-        self.color_btn = RoundedButton(color_row, text="Choose color",
-                                       command=lambda: self.choose_color(apply_to_strip=True))
-        self.color_btn.pack(side="left")
-        self.manual_widgets.append(self.color_btn)
-        self.custom_color_swatch = tk.Canvas(color_row, width=28, height=28, bg=PANEL,
-                                             highlightthickness=0)
-        self.custom_color_swatch.pack(side="left", padx=(10, 0))
-        self.manual_widgets.append(self.custom_color_swatch)
-        self.custom_color_swatch.create_oval(3, 3, 25, 25, fill=self.color, outline=ACCENT, width=2)
-        self.color_value = tk.StringVar(value=self.color.upper())
-        ttk.Label(color_row, textvariable=self.color_value, style="Card.TLabel").pack(side="left", padx=(14, 0))
-        self.set_color_btn = RoundedButton(color_row, text="Apply solid color", command=self.set_color)
-        self.set_color_btn.pack(side="right")
-        self.manual_widgets.append(self.set_color_btn)
+        for name, color in (("Mint", "#46D6AA"), ("Blue", "#7EA7FF"),
+                            ("Violet", "#C49BFF"), ("Coral", "#FF8A70"),
+                            ("Amber", "#FFD36D"), ("Soft white", "#F4F4F0")):
+            swatch = tk.Canvas(color_row, width=36, height=36, bg=PANEL,
+                               highlightthickness=0, cursor="hand2")
+            swatch.pack(side="left", padx=(0, 8))
+            swatch.bind("<Button-1>", lambda _event, value=color: self._set_notification_color(value))
+            swatch.notification_color = color
+            self.notification_color_swatches.append(swatch)
+            self.manual_widgets.append(swatch)
+        self._refresh_notification_color_swatches()
+        self.notification_color_btn = RoundedButton(
+            color_row, text="Choose color…", command=self._choose_notification_color)
+        self.notification_color_btn.pack(side="left", padx=(4, 10))
+        self.manual_widgets.append(self.notification_color_btn)
+        self.notification_color_value = tk.StringVar(value=self.notification_color.get())
+        ttk.Label(color_row, textvariable=self.notification_color_value,
+                  style="Card.TLabel").pack(side="left")
+        self.notification_preview_btn = RoundedButton(
+            color_row, text="Preview pattern", style="Accent.TButton",
+            command=self._preview_notification_effect)
+        self.notification_preview_btn.pack(side="right")
+        self.manual_widgets.append(self.notification_preview_btn)
 
         brightness_card = self._card(page, padding=17)
         brightness_card.pack(fill="x", pady=(0, GAP))
