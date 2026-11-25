@@ -174,6 +174,14 @@ class App(tk.Tk):
         # on high-DPI 4K desktops where the system default is visibly oversized.
         self.tk.call("tk", "scaling", 1.0)
         self.title("Mitsuko G1 · Light Sync")
+        self.logo_image = None
+        self.brand_image = None
+        try:
+            self.logo_image = tk.PhotoImage(file=str(ROOT / "mitsuko-g1.png"))
+            self.iconphoto(True, self.logo_image)
+            self.brand_image = self.logo_image.subsample(6, 6)
+        except (tk.TclError, OSError):
+            self.logo_image = None
         self.geometry("1220x1040")
         self.after(1000, self._use_mockup_window_size)
         self.minsize(1080, 940)
@@ -346,8 +354,10 @@ class App(tk.Tk):
 
         header = ttk.Frame(shell, style="Header.TFrame", padding=(20, 13))
         header.pack(fill="x", padx=1, pady=(1, 0))
-        brand_mark = tk.Label(header, text="G1", bg=ACCENT, fg=BG, font=(FONT, 10, "bold"),
-                              width=4, height=2, relief="flat")
+        brand_mark = (tk.Label(header, image=self.brand_image, bg=PANEL, bd=0)
+                      if self.brand_image is not None else
+                      tk.Label(header, text="G1", bg=ACCENT, fg=BG, font=(FONT, 10, "bold"),
+                               width=4, height=2, relief="flat"))
         brand_mark.pack(side="left", padx=(0, 11))
         title_box = ttk.Frame(header, style="Header.TFrame")
         title_box.pack(side="left")
@@ -1309,7 +1319,7 @@ class App(tk.Tk):
                 "mitsuko-g1", "mitsuko-g1",
                 AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS)
             indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
-            indicator.set_icon_full("preferences-desktop-display", "Mitsuko G1")
+            indicator.set_icon_full("mitsuko-g1", "Mitsuko G1")
             menu = Gtk.Menu()
             show_item = Gtk.MenuItem(label="Open Mitsuko G1")
             show_item.connect("activate", lambda *_args: self._restore_from_tray())
