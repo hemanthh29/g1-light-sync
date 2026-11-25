@@ -1141,7 +1141,7 @@ class App(tk.Tk):
         self.music_color_swatch = tk.Canvas(color_row, width=34, height=34, bg=PANEL,
                                             highlightthickness=0, cursor="hand2")
         self.music_color_swatch.pack(side="right")
-        self.music_color_swatch.bind("<Button-1>", lambda _e: self.choose_color())
+        self.music_color_swatch.bind("<Button-1>", lambda _e: self.choose_color(apply_to_strip=False))
         self.manual_widgets.append(self.music_color_swatch)
         self._update_music_color_swatch()
         bright_header = ttk.Frame(color_card, style="Card.TFrame")
@@ -1229,14 +1229,24 @@ class App(tk.Tk):
 
     def _set_color_preview(self, color):
         self.color = color
-        color_button = getattr(self, "color_btn", None)
-        if color_button is not None and color_button.winfo_exists():
-            color_button.configure(bg=color, fg=BG, activebackground=color, activeforeground=BG)
         color_value = getattr(self, "color_value", None)
         if color_value is not None:
             color_value.set(color.upper())
+        color_swatch = getattr(self, "custom_color_swatch", None)
+        if color_swatch is not None and color_swatch.winfo_exists():
+            color_swatch.delete("all")
+            color_swatch.create_oval(3, 3, 25, 25, fill=color, outline=ACCENT, width=2)
         self._update_music_color_swatch()
         self._refresh_palette_swatches()
+        try:
+            settings = json.loads(CONFIG.read_text())
+        except (OSError, ValueError):
+            settings = {}
+        settings["color"] = [int(color[index:index + 2], 16) for index in (1, 3, 5)]
+        try:
+            CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+        except OSError:
+            pass
 
     def select_palette_color(self, color):
         self._set_color_preview(color)
@@ -1357,9 +1367,15 @@ class App(tk.Tk):
         self._refresh_palette_swatches()
         color_row = ttk.Frame(color_card, style="Card.TFrame")
         color_row.pack(fill="x")
-        self.color_btn = RoundedButton(color_row, text="Choose color", command=self.choose_color)
+        self.color_btn = RoundedButton(color_row, text="Choose color",
+                                       command=lambda: self.choose_color(apply_to_strip=True))
         self.color_btn.pack(side="left")
         self.manual_widgets.append(self.color_btn)
+        self.custom_color_swatch = tk.Canvas(color_row, width=28, height=28, bg=PANEL,
+                                             highlightthickness=0)
+        self.custom_color_swatch.pack(side="left", padx=(10, 0))
+        self.manual_widgets.append(self.custom_color_swatch)
+        self.custom_color_swatch.create_oval(3, 3, 25, 25, fill=self.color, outline=ACCENT, width=2)
         self.color_value = tk.StringVar(value=self.color.upper())
         ttk.Label(color_row, textvariable=self.color_value, style="Card.TLabel").pack(side="left", padx=(14, 0))
         self.set_color_btn = RoundedButton(color_row, text="Apply solid color", command=self.set_color)
@@ -1529,8 +1545,14 @@ class App(tk.Tk):
                         elif self.pending_device_effect is not None:
                             self._remember_notification_state(("effect", *self.pending_device_effect))
                         self.pending_device_effect = None
-                    elif result["callback"] == "solid_color" and result["code"] == 0:
-                        self._remember_notification_state(("color", *(int(self.color[index:index + 2], 16) for index in (1, 3, 5))))
+                    elif result["callback"] == "solid_color":
+                        output = (result["out"] or result["err"]).strip()
+                        if result["code"] == 0:
+                            self._remember_notification_state(("color", *(int(self.color[index:index + 2], 16) for index in (1, 3, 5))))
+                            self.details.set(f"Solid color applied · {self.color.upper()}")
+                        else:
+                            self.details.set(output or "Could not apply the selected color")
+                            messagebox.showerror("Could not apply color", output or "The G1 rejected the color command.", parent=self)
                     elif result["callback"] == "lights_off" and result["code"] == 0:
                         self._remember_notification_state(("off",))
                 elif kind == "diagnostics":
@@ -1950,7 +1972,7 @@ class App(tk.Tk):
             self.proc = None
             messagebox.showerror("Could not start music sync", str(exc), parent=self)
 
-    def choose_color(self):
+    def choose_color(self, apply_to_strip=False):
         picker = tk.Toplevel(self)
         picker.title("Choose LED color · Mitsuko G1")
         picker.configure(bg=BG)
@@ -1968,7 +1990,10 @@ class App(tk.Tk):
         card = self._card(shell, padding=15)
         card.pack(fill="both", expand=True)
         ttk.Label(card, text="Choose an LED color", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(card, text="Pick a shade, choose its hue, or enter a hex value.",
+        subtitle = ("Choose a shade or hex value; using it applies the color to the strip."
+                    if apply_to_strip else
+                    "Choose the palette anchor for music-reactive lighting.")
+        ttk.Label(card, text=subtitle,
                   style="Sub.TLabel").pack(anchor="w", pady=(3, 14))
 
         sv_width, sv_height = 360, 220
@@ -2003,7 +2028,8 @@ class App(tk.Tk):
             picker.destroy()
 
         RoundedButton(buttons, text="Cancel", command=close_picker).pack(side="right")
-        apply_button = RoundedButton(buttons, text="Use this color", style="Accent.TButton")
+        action_label = "Use this color" if apply_to_strip else "Use as palette anchor"
+        apply_button = RoundedButton(buttons, text=action_label, style="Accent.TButton")
         apply_button.pack(side="right", padx=(0, 9))
 
         red, green, blue = (int(self.color[i:i + 2], 16) / 255 for i in (1, 3, 5))
@@ -2096,7 +2122,10 @@ class App(tk.Tk):
                 hex_field.field.focus_set()
                 return
             color = "#" + value_text.lstrip("#").upper()
-            self._set_color_preview(color)
+            if apply_to_strip:
+                self.select_palette_color(color)
+            else:
+                self._set_color_preview(color)
             close_picker()
 
         for position in range(sv_width):
