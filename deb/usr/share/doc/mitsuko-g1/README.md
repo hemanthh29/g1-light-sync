@@ -53,7 +53,7 @@ Captures the computer's PipeWire playback mix, so no microphone is needed. Selec
 - **Treble:** emphasizes high-frequency energy and transients.
 - **Voice emphasis:** emphasizes energy in a vocal-like frequency range. It does not isolate or identify vocals.
 
-Combined mode uses the current perimeter counts in the GUI. Zone colors are saved with the desktop preferences and are used in combined and single-zone modes. Starting another live mode while one is active stops the current mode and switches to the selected one; the start controls remain available.
+Combined mode uses the current perimeter counts in the GUI. It follows the song's relative loudness arc with a slow envelope and adds a separate broadband beat pulse; all perimeter zones share that response, without frequency-band splitting. Bottom, side, and top colors remain independently customizable. Bass, Treble, and Voice are optional focused modes. Starting another live mode while one is active stops the current mode and switches to the selected one; the start controls remain available.
 
 ### Lighting effects and controls
 

@@ -1223,7 +1223,7 @@ class App(tk.Tk):
         ttk.Label(heading, text=subtitle, style="PageSub.TLabel").pack(anchor="w", pady=(4, 0))
 
     def _build_music_page(self, page):
-        self._page_heading(page, "Music ambience", "A clear preview of how each part of the song maps around your monitor.")
+        self._page_heading(page, "Music ambience", "Shape the full-mix response and set colors around the monitor perimeter.")
         columns = ttk.Frame(page, style="Root.TFrame")
         columns.pack(fill="both", expand=True)
         columns.columnconfigure(0, weight=7, uniform="music")
@@ -1233,17 +1233,19 @@ class App(tk.Tk):
         preview = self._card(columns, padding=15)
         preview.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         ttk.Label(preview, text="PERIMETER MAP", style="Muted.Card.TLabel").pack(anchor="w")
-        self.preview_mode_label = ttk.Label(preview, text=f"{self.audio_mode.get().title()} mode", style="Section.TLabel")
+        self.preview_mode_label = ttk.Label(preview, text="Full mix", style="Section.TLabel")
         self.preview_mode_label.pack(anchor="w", pady=(4, 0))
-        ttk.Label(preview, text="Bass on the bottom · voice and mids on the sides · treble on top",
-                  style="Muted.Card.TLabel", wraplength=410).pack(anchor="w", pady=(4, 8))
+        self.preview_mode_description = ttk.Label(
+            preview, text="Song loudness swells and broadband beat pulses lift all perimeter zones together.",
+            style="Muted.Card.TLabel", wraplength=470)
+        self.preview_mode_description.pack(anchor="w", pady=(4, 8))
         self.preview_canvas = tk.Canvas(preview, width=330, height=220, bg=PANEL, highlightthickness=0)
         self.preview_canvas.pack(fill="both", expand=True, pady=(6, 4))
         self.preview_canvas.bind("<Configure>", self._update_perimeter_preview)
         self.music_zone_preview_swatches = {}
-        for zone, label, detail in (("bass", "Bass · bottom", "Beat pulse"),
-                                    ("voice", "Voice / mids · sides", "Color body"),
-                                    ("treble", "Treble · top", "Transient accents")):
+        for zone, label in (("bass", "Bottom perimeter"),
+                            ("voice", "Side perimeters"),
+                            ("treble", "Top perimeter")):
             row = tk.Frame(preview, bg=PANEL_ALT, padx=12, pady=8)
             row.pack(fill="x", pady=(6, 0))
             dot = tk.Canvas(row, width=12, height=12, bg=PANEL_ALT, highlightthickness=0)
@@ -1251,7 +1253,7 @@ class App(tk.Tk):
             dot.pack(side="left", padx=(0, 8))
             self.music_zone_preview_swatches[zone] = dot
             tk.Label(row, text=label, bg=PANEL_ALT, fg=TEXT, font=(FONT, 9)).pack(side="left")
-            tk.Label(row, text=detail, bg=PANEL_ALT, fg=MUTED, font=(FONT, 9)).pack(side="right")
+            tk.Label(row, text="Palette color", bg=PANEL_ALT, fg=MUTED, font=(FONT, 9)).pack(side="right")
 
         controls_column = ttk.Frame(columns, style="Root.TFrame")
         controls_column.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
@@ -1262,7 +1264,7 @@ class App(tk.Tk):
         mode_grid = ttk.Frame(controls, style="Card.TFrame")
         mode_grid.pack(fill="x")
         self.music_mode_buttons = []
-        for index, (label, value) in enumerate((("Combined", "combined"), ("Bass", "bass"),
+        for index, (label, value) in enumerate((("Full mix", "combined"), ("Bass", "bass"),
                                                  ("Treble", "treble"), ("Voice · approx.", "voice"))):
             button = RoundedButton(mode_grid, text=label, style="Mode.TButton",
                                    command=lambda v=value: self._select_music_mode(v))
@@ -1287,10 +1289,10 @@ class App(tk.Tk):
         self.manual_widgets.append(self.music_btn)
         color_card = self._card(controls_column, padding=14)
         color_card.pack(fill="x", pady=(GAP, 0))
-        ttk.Label(color_card, text="MUSIC ZONE COLORS", style="Muted.Card.TLabel").pack(anchor="w")
+        ttk.Label(color_card, text="PERIMETER COLORS", style="Muted.Card.TLabel").pack(anchor="w")
         self.music_zone_color_rows = {}
-        for zone, label in (("bass", "Bass · bottom"), ("voice", "Voice / mids · sides"),
-                            ("treble", "Treble · top")):
+        for zone, label in (("bass", "Bottom perimeter"), ("voice", "Side perimeters"),
+                            ("treble", "Top perimeter")):
             zone_row = ttk.Frame(color_card, style="Card.TFrame")
             zone_row.pack(fill="x", pady=3)
             swatch = tk.Canvas(zone_row, width=26, height=26, bg=PANEL, highlightthickness=0,
@@ -1331,6 +1333,7 @@ class App(tk.Tk):
                                  command=lambda name=target: self._show_page(name))
             link.grid(row=0, column=index, sticky="ew", padx=(0, 8) if index < 2 else 0)
             links.columnconfigure(index, weight=1, uniform="othernav")
+        self._select_music_mode(self.audio_mode.get())
 
     def _update_perimeter_preview(self, _event=None):
         canvas = getattr(self, "preview_canvas", None)
@@ -1345,25 +1348,36 @@ class App(tk.Tk):
         left, right = (width - monitor_width) / 2, (width + monitor_width) / 2
         top, bottom = (height - monitor_height) / 2, (height + monitor_height) / 2
         mode = self.audio_mode.get()
-        active = {"combined": {"bass", "voice", "treble"}, "bass": {"bass"},
-                  "voice": {"voice"}, "treble": {"treble"}}.get(mode, {"bass", "voice", "treble"})
-        muted = "#354151"
-        bass = self.music_zone_colors["bass"].get() if "bass" in active else muted
-        voice = self.music_zone_colors["voice"].get() if "voice" in active else muted
-        treble = self.music_zone_colors["treble"].get() if "treble" in active else muted
+        if mode == "combined":
+            bass = self.music_zone_colors["bass"].get()
+            voice = self.music_zone_colors["voice"].get()
+            treble = self.music_zone_colors["treble"].get()
+        else:
+            # Focused modes use their selected category color across the strip.
+            bass = voice = treble = self.music_zone_colors[mode].get()
         canvas.create_rectangle(left, top, right, bottom, fill=BG, outline=BORDER, width=2)
         canvas.create_line(left + 2, top, right - 2, top, fill=treble, width=7, capstyle=tk.ROUND)
         canvas.create_line(left + 2, bottom, right - 2, bottom, fill=bass, width=7, capstyle=tk.ROUND)
         canvas.create_line(left, top + 2, left, bottom - 2, fill=voice, width=7, capstyle=tk.ROUND)
         canvas.create_line(right, top + 2, right, bottom - 2, fill=voice, width=7, capstyle=tk.ROUND)
-        canvas.create_text(width / 2, top - 19, text="TREBLE  ·  TOP", fill=treble, font=(FONT, 9, "bold"))
-        canvas.create_text(width / 2, bottom + 20, text="BASS  ·  BOTTOM", fill=bass, font=(FONT, 9, "bold"))
-        canvas.create_text(width / 2, height / 2 - 6, text=mode.title(), fill=TEXT, font=(FONT, 10, "bold"))
-        canvas.create_text(width / 2, height / 2 + 15, text="Music reactive", fill=MUTED, font=(FONT, 9))
+        canvas.create_text(width / 2, top - 19, text="TOP PERIMETER", fill=treble, font=(FONT, 9, "bold"))
+        canvas.create_text(width / 2, bottom + 20, text="BOTTOM PERIMETER", fill=bass, font=(FONT, 9, "bold"))
+        center_label = "Full mix" if mode == "combined" else mode.title()
+        center_detail = "Shared loudness + beat pulse" if mode == "combined" else "Music reactive"
+        canvas.create_text(width / 2, height / 2 - 6, text=center_label, fill=TEXT, font=(FONT, 10, "bold"))
+        canvas.create_text(width / 2, height / 2 + 15, text=center_detail, fill=MUTED, font=(FONT, 9))
 
     def _select_music_mode(self, value):
         self.audio_mode.set(value)
-        self.preview_mode_label.configure(text=f"{value.title()} mode")
+        mode_copy = {
+            "combined": ("Full mix", "Song loudness swells and broadband beat pulses lift all perimeter zones together."),
+            "bass": ("Bass focus", "Bass energy and low-end hits drive the full strip."),
+            "treble": ("Treble focus", "High-frequency activity and sharp hits drive the full strip."),
+            "voice": ("Voice focus · approximate", "Midrange activity drives the full strip; instruments can overlap in this range."),
+        }
+        title, description = mode_copy.get(value, mode_copy["combined"])
+        self.preview_mode_label.configure(text=title)
+        self.preview_mode_description.configure(text=description)
         self._refresh_music_modes()
         self._update_perimeter_preview()
 
@@ -1397,11 +1411,11 @@ class App(tk.Tk):
         self._update_music_zone_swatch(zone)
 
     def _choose_music_zone_color(self, zone):
-        label = {"bass": "Bass", "voice": "Voice / mids", "treble": "Treble"}[zone]
+        label = {"bass": "bottom perimeter", "voice": "side perimeters", "treble": "top perimeter"}[zone]
         self.choose_color(
             initial_color=self.music_zone_colors[zone].get(),
             action_label="Use for this zone",
-            subtitle=f"Choose the color used by the {label.lower()} zone during music sync.",
+            subtitle=f"Choose the color used by the {label} of the full-mix palette.",
             on_select=lambda color: self._set_music_zone_color(zone, color),
         )
 

@@ -695,23 +695,26 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
     reader.start()
 
     try:
-        labels = {"combined": "Combined", "bass": "Bass", "treble": "Treble", "voice": "Voice emphasis (approx.)"}
+        labels = {"combined": "Full mix", "bass": "Bass", "treble": "Treble", "voice": "Voice emphasis (approx.)"}
         print(f"{labels[mode]} music mode running at up to {fps} FPS; capturing PipeWire output. Ctrl+C to stop.", flush=True)
         levels = np.zeros(4, dtype=np.float32)
         hits = np.zeros(3, dtype=np.float32)
         beat_level = 0.0
         last_beat = -1e9
         song_reference_db = None
+        song_level = 0.5
+        beat_reference = None
         audio_history = np.zeros(window_size, dtype=np.float32)
         previous_spectrum = np.zeros(window_size // 2 + 1, dtype=np.float32)
         zone_hsv = {name: colorsys.rgb_to_hsv(*(channel / 255 for channel in zone_colors[name]))
                     for name in ("bass", "voice", "treble")}
         last_report = time.monotonic()
         previous_frame_time = time.monotonic()
-        frequencies = np.fft.rfftfreq(window_size, 1 / rate)
-        bands = ((35, 150), (150, 500), (500, 3500), (3500, 16000))
-        masks = [(frequencies >= low) & (frequencies < high) for low, high in bands]
-        window = np.hanning(window_size).astype(np.float32)
+        if mode != "combined":
+            frequencies = np.fft.rfftfreq(window_size, 1 / rate)
+            bands = ((35, 150), (150, 500), (500, 3500), (3500, 16000))
+            masks = [(frequencies >= low) & (frequencies < high) for low, high in bands]
+            window = np.hanning(window_size).astype(np.float32)
         floor_db = (-24.0, -29.0, -28.0, -33.0)
         band_range_db = max(18.0, 36.0 - 3.0 * sensitivity)
         sensitivity_shift = (sensitivity - 1.5) * 1.1
@@ -751,14 +754,67 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
                 audio_history[:-samples_per_block] = audio_history[samples_per_block:]
                 audio_history[-samples_per_block:] = samples
 
+            rms = float(np.sqrt(np.mean(audio_history * audio_history)))
+            gate = min(1.0, max(0.0, (rms - 0.002) / 0.025))
+
+            if mode == "combined":
+                # Full-mix response: long-term relative loudness gives the
+                # song's verse/build/chorus arc, while a broadband short-block
+                # rise creates a separate beat pulse. This path intentionally
+                # does not calculate FFT bands or classify instruments.
+                rms_db = 20.0 * math.log10(max(rms, 1e-6))
+                if rms > 0.002:
+                    if song_reference_db is None:
+                        song_reference_db = rms_db
+                    else:
+                        reference_alpha = 1.0 - math.exp(-dt / 24.0)
+                        song_reference_db += (rms_db - song_reference_db) * reference_alpha
+                    loudness_range_db = max(10.0, 22.0 - 2.4 * sensitivity)
+                    song_target = min(1.0, max(0.0, 0.5 + (rms_db - song_reference_db) / loudness_range_db))
+                else:
+                    song_target = 0.0
+                song_tau = 0.20 if song_target > song_level else 0.75
+                song_level += (song_target - song_level) * (1.0 - math.exp(-dt / song_tau))
+
+                block_rms = float(np.sqrt(np.mean(samples * samples)))
+                if beat_reference is None:
+                    beat_reference = block_rms
+                beat_ratio = block_rms / max(beat_reference, 0.0015)
+                beat_threshold = max(1.04, 1.18 - 0.025 * sensitivity)
+                beat_range = max(0.48, 0.90 - 0.08 * sensitivity)
+                beat_strength = min(1.0, max(0.0, (beat_ratio - beat_threshold) / beat_range)) * gate
+                if beat_strength >= 0.20 and frame_start - last_beat >= 0.20:
+                    beat_level = max(beat_level, beat_strength)
+                    last_beat = frame_start
+                else:
+                    beat_level *= math.exp(-dt / 0.19)
+                if rms > 0.002:
+                    reference_alpha = 1.0 - math.exp(-dt / 0.85)
+                    beat_reference += (block_rms - beat_reference) * reference_alpha
+                else:
+                    beat_reference *= math.exp(-dt / 0.85)
+
+                # Keep the slow musical envelope visible between beats, then
+                # let each hit lift the same palette zones together.
+                shared_value = 0.08 + 0.64 * song_level + 0.95 * beat_level
+                bottom, left, top, right = (edge_counts[key] for key in ("bottom", "left", "top", "right"))
+                colors = ([rgb_for_zone("bass", shared_value)] * bottom
+                          + [rgb_for_zone("voice", shared_value)] * left
+                          + [rgb_for_zone("treble", shared_value)] * top
+                          + [rgb_for_zone("voice", shared_value)] * right)
+                if time.monotonic() - last_report >= 1.0:
+                    print("Audio levels · song {:.2f} · beat {:.2f}".format(song_level, beat_level), flush=True)
+                    last_report = time.monotonic()
+                send_frame_resilient(g, colors)
+                time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
+                continue
+
             spectrum = np.abs(np.fft.rfft(audio_history * window)) * (2.0 / max(1.0, float(window.sum())))
             band_energy = np.asarray([
                 float(np.sqrt(np.sum(spectrum[mask] ** 2) * 0.5)) if np.any(mask) else 0.0
                 for mask in masks
             ], dtype=np.float32)
-            rms = float(np.sqrt(np.mean(audio_history * audio_history)))
             rms_db = 20.0 * math.log10(max(rms, 1e-6))
-            gate = min(1.0, max(0.0, (rms - 0.002) / 0.025))
 
             # Track the song's own loud/quiet movement against one slow global
             # reference. Band balance remains a separate, same-frame signal.
@@ -818,31 +874,8 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
                 value = song_gain * (0.06 + 0.38 * mid_level) + 0.36 * float(hits[1]) + 0.10 * beat_level
                 colors = [rgb_for_zone("voice", value)] * g.lamps
             else:
-                # Compose independent features into the same frame: song
-                # loudness scales each zone, bass pulses the bottom, mids glow
-                # on the sides, treble sparkles on top, and beat adds a small
-                # shared accent. Each layer keeps headroom for the others.
-                bottom = edge_counts["bottom"]
-                left = edge_counts["left"]
-                top = edge_counts["top"]
-                right = edge_counts["right"]
-                bass_body = song_gain * (0.06 + 0.38 * float(levels[0]))
-                bass_value = bass_body + 0.56 * float(hits[0]) + 0.13 * beat_level
-                side_body = song_gain * (0.06 + 0.38 * mid_level)
-                side_value = side_body + 0.25 * float(hits[1]) + 0.10 * beat_level
-                top_body = song_gain * (0.05 + 0.34 * float(levels[3]))
-                top_colors = []
-                for index in range(top):
-                    shimmer = 0.25 + 0.75 * abs(math.sin(frame_start * 31.0 + index * 1.71))
-                    treble_value = top_body + 0.42 * float(hits[2]) * shimmer + 0.08 * beat_level
-                    top_colors.append(rgb_for_zone("treble", treble_value))
-
-                # Preserve the controller's perimeter wire order: bottom,
-                # left, top, then right.
-                side_left = [rgb_for_zone("voice", side_value)] * left
-                side_right = [rgb_for_zone("voice", side_value)] * right
-                colors = ([rgb_for_zone("bass", bass_value)] * bottom
-                          + side_left + top_colors + side_right)
+                # All frequency-analysis modes are handled above.
+                colors = [rgb_for_zone("voice", 0.0)] * g.lamps
             send_frame_resilient(g, colors)
             time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
     finally:
