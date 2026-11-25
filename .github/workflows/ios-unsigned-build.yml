@@ -20,11 +20,11 @@ jobs:
             -target MitsukoG1 \
             -configuration Release \
             -sdk iphoneos \
-            -derivedDataPath "$RUNNER_TEMP/MitsukoG1Build" \
+            CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/MitsukoG1Products" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
           mkdir -p "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist
-          cp -R "$RUNNER_TEMP/MitsukoG1Build/Build/Products/Release-iphoneos/MitsukoG1.app" \
+          cp -R "$RUNNER_TEMP/MitsukoG1Products/MitsukoG1.app" \
             "$RUNNER_TEMP/MitsukoG1IPA/Payload/"
           ditto -c -k --sequesterRsrc --keepParent \
             "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist/MitsukoG1-unsigned.ipa
