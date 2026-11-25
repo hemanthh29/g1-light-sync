@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Authenticated local-network bridge from the Android companion to Mitsuko G1."""
+"""Authenticated local-network bridge for the G1 Light Sync companions."""
 from __future__ import annotations
 import hmac, ipaddress, json, os, secrets, signal, shutil, socket, subprocess, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -151,7 +151,7 @@ def publish_bonjour():
         path = server.EntryGroupNew(dbus_interface='org.freedesktop.Avahi.Server')
         group = bus.get_object('org.freedesktop.Avahi', path)
         group.AddService(dbus.Int32(-1), dbus.Int32(-1), dbus.UInt32(0),
-                         dbus.String('Mitsuko G1'), dbus.String('_mitsukog1._tcp'),
+                         dbus.String('G1 Light Sync'), dbus.String('_mitsukog1._tcp'),
                          dbus.String(''), dbus.String(''), dbus.UInt16(PORT),
                          dbus.Array([], signature='s'),
                          dbus_interface='org.freedesktop.Avahi.EntryGroup')
@@ -201,7 +201,7 @@ def restart_command(args):
 
 def cli(*args):
     if not CONTROLLER.is_file():
-        raise RuntimeError('Mitsuko G1 controller is missing from the per-user app install.')
+        raise RuntimeError('G1 Light Sync controller is missing from the per-user app install.')
     return [os.environ.get('PYTHON', '/usr/bin/python3'), str(CONTROLLER), *map(str, args)]
 
 
@@ -288,7 +288,7 @@ def action(data):
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = 'MitsukoPhoneBridge/1.0'
+    server_version = 'G1LightSyncPhoneBridge/1.0'
     def _json(self, code, payload):
         body = json.dumps(payload).encode()
         self.send_response(code); self.send_header('Content-Type','application/json')
@@ -315,7 +315,7 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(size))
     def do_GET(self):
         if not self._is_local() and not self._is_private_peer():
-            self._json(403, {'ok':False,'error':'Mitsuko G1 phone access is limited to your local network'}); return
+            self._json(403, {'ok':False,'error':'G1 Light Sync phone access is limited to your local network'}); return
         if not self._authorized():
             self._json(401, {'ok':False,'error':'Pair this phone with the laptop first'}); return
         if self.path == '/api/status': self._json(200, status())
@@ -340,12 +340,12 @@ class Handler(BaseHTTPRequestHandler):
                 recent.append(now); _pair_attempts[remote] = recent
                 if not hmac.compare_digest(str(data.get('pin', '')), PAIR_PIN):
                     self._json(403, {'ok':False,'error':'Pairing code did not match'}); return
-                self._json(200, {'ok':True,'token':ACCESS_TOKEN,'message':'Paired with Mitsuko G1'})
+                self._json(200, {'ok':True,'token':ACCESS_TOKEN,'message':'Paired with G1 Light Sync'})
                 rotate_pair_pin()
                 return
             if self.path != '/api/action': self._json(404, {'ok':False,'error':'Not found'}); return
             if not self._is_local() and not self._is_private_peer():
-                self._json(403, {'ok':False,'error':'Mitsuko G1 phone access is limited to your local network'}); return
+                self._json(403, {'ok':False,'error':'G1 Light Sync phone access is limited to your local network'}); return
             if not self._authorized():
                 self._json(401, {'ok':False,'error':'Pair this phone with the laptop first'}); return
             self._json(200, action(data))

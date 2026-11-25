@@ -1,8 +1,8 @@
-# Mitsuko G1 Light Sync for Linux
+# G1 Light Sync for Linux
 
-A desktop controller for the Mitsuko Phantom G1 monitor light strip. It provides USB control, screen-edge lighting, music-reactive modes, and the effects exposed by the device firmware.
+An unofficial desktop controller for the Mitsuko Phantom G1 monitor light strip. G1 Light Sync is an independent project, not affiliated with or endorsed by Mitsuko. It provides USB control, screen-edge lighting, music-reactive modes, and the effects exposed by the device firmware.
 
-The Linux controller communicates with the strip over USB HID (`1a86:fe07`). Its protocol was derived from the Windows application; this is an independent community implementation, not an official Mitsuko Linux app.
+The Linux controller communicates with the strip over USB HID (`1a86:fe07`). Its protocol was derived from the Windows application.
 
 ## Install
 
@@ -12,7 +12,7 @@ Install the Debian package and its declared system dependencies:
 sudo apt install ./mitsuko-g1.deb
 ```
 
-Launch **Mitsuko G1 Light Sync** from the applications menu or run:
+Launch **G1 Light Sync** from the applications menu or run:
 
 ```bash
 mitsuko-g1
@@ -26,11 +26,11 @@ The GUI is organized into four sections: Music reactive, Screen sync, Lighting e
 
 ### Background behavior
 
-Closing the window hides it while Mitsuko G1 keeps running. Use the **Mitsuko G1** indicator in the GNOME top panel to reopen the window or quit the application. **Ctrl+Q** also quits; if a live LED mode is running, the app asks before stopping it.
+Closing the window hides it while G1 Light Sync keeps running. Use the **G1 Light Sync** indicator in the GNOME top panel to reopen the window or quit the application. **Ctrl+Q** also quits; if a live LED mode is running, the app asks before stopping it.
 
 ### Phone Wi-Fi relay
 
-The **Phone Wi-Fi setup** window shows the laptop address and pairing code and includes a relay switch. Turning it on enables the per-user systemd service at desktop login; the relay continues running after the Mitsuko window closes. Turning it off stops the service and prevents it from starting at the next login.
+The **Phone Wi-Fi setup** window shows the laptop address and pairing code and includes a relay switch. Turning it on enables the per-user systemd service at desktop login; the relay continues running after G1 Light Sync closes. Turning it off stops the service and prevents it from starting at the next login.
 
 ### Screen sync
 
@@ -93,4 +93,4 @@ Actual LED update speed can vary with the display-capture path and USB device pa
 
 ## Android phone companion
 
-The companion app can control the G1 over USB debugging or over the same local Wi-Fi network. Open Mitsuko G1 on the laptop, choose **Phone Wi-Fi setup**, then enter the displayed laptop address and pairing code in the Android app. After the initial pairing, the phone remembers its access token and automatically discovers the laptop on the same Wi-Fi network, so reconnects need no IP or code. USB remains a fallback. The relay limits phone control to paired devices on the local network.
+The companion apps can control the G1 over USB debugging or over the same local Wi-Fi network. Open G1 Light Sync on the laptop, choose **Phone Wi-Fi setup**, then pair the phone using the displayed code. After the initial pairing, the phone remembers its access token and automatically discovers the laptop on the same Wi-Fi network, so reconnects need no IP or code. USB remains a fallback for Android. The relay limits phone control to paired devices on the local network.

@@ -5,7 +5,7 @@ import Foundation
 private enum MitsukoIntentClient {
     static func perform(action: String, fields: [String: Any] = [:]) async throws -> String {
         guard let token = TokenVault.read() else {
-            throw CompanionError.message("Open Mitsuko G1 and pair with your laptop first.")
+            throw CompanionError.message("Open G1 Light Sync and pair with your laptop first.")
         }
 
         let discovery = BonjourDiscovery()
@@ -22,7 +22,7 @@ private enum MitsukoIntentClient {
                 try? await Task.sleep(for: .seconds(7))
                 guard !finished else { return }
                 finished = true
-                continuation.resume(throwing: CompanionError.message("Could not find Mitsuko G1 on this Wi-Fi. Open the laptop app and try again."))
+                continuation.resume(throwing: CompanionError.message("Could not find G1 Light Sync on this Wi-Fi. Open the laptop app and try again."))
             }
         }
 
@@ -44,13 +44,13 @@ private enum MitsukoIntentClient {
         guard (200..<300).contains(code), payload["ok"] as? Bool != false else {
             throw CompanionError.message(payload["error"] as? String ?? "Laptop request failed (\(code)).")
         }
-        return payload["message"] as? String ?? "Mitsuko command sent."
+        return payload["message"] as? String ?? "G1 Light Sync command sent."
     }
 }
 
 struct MitsukoScreenSyncIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Screen Sync"
-    static var description = IntentDescription("Start Mitsuko G1 screen lighting sync.")
+    static var description = IntentDescription("Start screen lighting sync for Mitsuko Phantom G1.")
     static var openAppWhenRun = false
 
     func perform() async throws -> some ReturnsValue<String> {
@@ -60,7 +60,7 @@ struct MitsukoScreenSyncIntent: AppIntent {
 
 struct MitsukoMusicIntent: AppIntent {
     static var title: LocalizedStringResource = "Start Music Reactive Lighting"
-    static var description = IntentDescription("Start Mitsuko G1 music reactive lighting.")
+    static var description = IntentDescription("Start music reactive lighting for Mitsuko Phantom G1.")
     static var openAppWhenRun = false
 
     func perform() async throws -> some ReturnsValue<String> {
@@ -69,8 +69,8 @@ struct MitsukoMusicIntent: AppIntent {
 }
 
 struct MitsukoStopIntent: AppIntent {
-    static var title: LocalizedStringResource = "Stop Mitsuko Sync"
-    static var description = IntentDescription("Stop the active Mitsuko G1 lighting effect.")
+    static var title: LocalizedStringResource = "Stop G1 Light Sync"
+    static var description = IntentDescription("Stop the active Phantom G1 lighting effect.")
     static var openAppWhenRun = false
 
     func perform() async throws -> some ReturnsValue<String> {
@@ -79,8 +79,8 @@ struct MitsukoStopIntent: AppIntent {
 }
 
 struct MitsukoLightsOffIntent: AppIntent {
-    static var title: LocalizedStringResource = "Turn Mitsuko Lights Off"
-    static var description = IntentDescription("Turn off Mitsuko G1 lighting.")
+    static var title: LocalizedStringResource = "Turn G1 Lights Off"
+    static var description = IntentDescription("Turn off Phantom G1 lighting.")
     static var openAppWhenRun = false
 
     func perform() async throws -> some ReturnsValue<String> {

@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
 
         LinearLayout top = row();
         TextView mark = label("G1",15,BG,true); mark.setGravity(Gravity.CENTER); mark.setBackground(shape(GREEN,12)); top.addView(mark,lp(44,44));
-        LinearLayout brand = column(); brand.setPadding(dp(12),0,0,0); brand.addView(label("MITSUKO",12,TEXT,true)); brand.addView(label("LIGHT SYNC",10,MUTED,true));
+        LinearLayout brand = column(); brand.setPadding(dp(12),0,0,0); brand.addView(label("G1 LIGHT SYNC",12,TEXT,true)); brand.addView(label("Unofficial Phantom G1 companion",10,MUTED,false));
         top.addView(brand,new LinearLayout.LayoutParams(0,dp(44),1));
         TextView refresh = label("↻",26,TEXT,false); refresh.setGravity(Gravity.CENTER); refresh.setContentDescription("Refresh connection"); refresh.setOnClickListener(v->refresh(true)); top.addView(refresh,lp(48,48));
         root.addView(top); gap(root,22);
@@ -162,7 +162,7 @@ public class MainActivity extends Activity {
 
         section(root,"YOUR PROFILES","Saved on the laptop.");
         profileRow=row(); profileRow.setGravity(Gravity.CENTER_VERTICAL); root.addView(profileRow); gap(root,15);
-        TextView foot=label("For Wi-Fi, connect both devices to the same network. Keep Mitsuko G1 open on the laptop.",11,MUTED,false); foot.setGravity(Gravity.CENTER); root.addView(foot);
+        TextView foot=label("Unofficial companion for Mitsuko Phantom G1 · Keep G1 Light Sync open on the laptop.",11,MUTED,false); foot.setGravity(Gravity.CENTER); root.addView(foot);
         setContentView(scroll);
     }
 
@@ -195,7 +195,7 @@ public class MainActivity extends Activity {
         if(m.equals("screen"))mode.setText("Screen sync is on");else if(m.equals("music"))mode.setText("Music reactive is on");else mode.setText("Ready to sync");
         if(names!=null){profileRow.removeAllViews();for(int i=0;i<names.length();i++){String n=names.optString(i);Button b=button(n,false);LinearLayout.LayoutParams p=lp(-2,42);p.rightMargin=dp(8);profileRow.addView(b,p);b.setOnClickListener(v->send("screen",json("profile",n)));}}
         if(notify)Toast.makeText(this,device?"Laptop link ready · G1 connected" : (cap?"Laptop link ready; G1 not detected":"Laptop link ready"),Toast.LENGTH_SHORT).show();
-    });}catch(Exception e){runOnUiThread(()->{link.setText("Laptop not found · check connection");linkDetail.setText("Same Wi-Fi or USB debugging");mode.setText("Waiting for laptop");if(notify)Toast.makeText(this,"Open Mitsuko G1 on the laptop and connect via Wi-Fi or USB",Toast.LENGTH_LONG).show();});}});}
+    });}catch(Exception e){runOnUiThread(()->{link.setText("Laptop not found · check connection");linkDetail.setText("Same Wi-Fi or USB debugging");mode.setText("Waiting for laptop");if(notify)Toast.makeText(this,"Open G1 Light Sync on the laptop and connect via Wi-Fi or USB",Toast.LENGTH_LONG).show();});}});}
     private JSONObject get(String path)throws Exception{return requestPreferred(path,"GET",null);}
     private JSONObject postAction(JSONObject data)throws Exception{return requestPreferred("/api/action","POST",data);}
     private JSONObject requestPreferred(String path,String method,JSONObject body)throws Exception{
@@ -267,7 +267,7 @@ public class MainActivity extends Activity {
         EditText host=new EditText(this);host.setSingleLine(true);host.setHint("Laptop Wi-Fi address, e.g. 192.168.1.5");host.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);form.addView(host,lp(-1,52));
         EditText pin=new EditText(this);pin.setSingleLine(true);pin.setHint("8-digit pairing code from laptop");pin.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);form.addView(pin,lp(-1,52));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Connect over Wi-Fi")
-            .setMessage("Put your phone and laptop on the same Wi-Fi. In Mitsuko G1 on the laptop, tap Phone Wi-Fi setup to see its address and pairing code.")
+            .setMessage("Put your phone and laptop on the same Wi-Fi. In G1 Light Sync on the laptop, tap Phone Wi-Fi setup to see its address and pairing code.")
             .setView(form).setNegativeButton("Cancel",null).setPositiveButton("Pair",null).create();
         dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view->{
             String address=host.getText().toString().trim();String code=pin.getText().toString().trim();

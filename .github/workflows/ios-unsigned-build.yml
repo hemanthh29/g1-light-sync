@@ -1,4 +1,4 @@
-name: Build unsigned iOS IPA
+name: Build G1 Light Sync iOS IPA
 
 on:
   workflow_dispatch:
@@ -23,19 +23,19 @@ jobs:
             CONFIGURATION_BUILD_DIR="$RUNNER_TEMP/MitsukoG1Products" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO
-          mkdir -p "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist
+          mkdir -p "$RUNNER_TEMP/G1LightSyncIPA/Payload" dist
           cp -R "$RUNNER_TEMP/MitsukoG1Products/MitsukoG1.app" \
-            "$RUNNER_TEMP/MitsukoG1IPA/Payload/"
+            "$RUNNER_TEMP/G1LightSyncIPA/Payload/"
           ditto -c -k --sequesterRsrc --keepParent \
-            "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist/MitsukoG1-unsigned.ipa
-          (cd dist && shasum -a 256 MitsukoG1-unsigned.ipa > SHA256SUMS.txt)
+            "$RUNNER_TEMP/G1LightSyncIPA/Payload" dist/G1LightSync-unsigned.ipa
+          (cd dist && shasum -a 256 G1LightSync-unsigned.ipa > SHA256SUMS.txt)
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: MitsukoG1-unsigned-IPA
+          name: G1LightSync-unsigned-IPA
           path: |
-            dist/MitsukoG1-unsigned.ipa
+            dist/G1LightSync-unsigned.ipa
             dist/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 7

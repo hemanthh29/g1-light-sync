@@ -2,16 +2,16 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-    <key>CFBundleDisplayName</key><string>Mitsuko G1</string>
+    <key>CFBundleDisplayName</key><string>G1 Light Sync</string>
     <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
-    <key>CFBundleName</key><string>Mitsuko G1</string>
+    <key>CFBundleName</key><string>G1 Light Sync</string>
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
     <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
     <key>LSRequiresIPhoneOS</key><true/>
     <key>NSLocalNetworkUsageDescription</key>
-    <string>Mitsuko G1 finds your paired laptop on your Wi-Fi so you can control the lights.</string>
+    <string>G1 Light Sync finds your paired laptop on Wi-Fi to control your Mitsuko Phantom G1 lights. This is an unofficial companion app.</string>
     <key>NSBonjourServices</key>
     <array><string>_mitsukog1._tcp</string></array>
     <key>NSAppTransportSecurity</key>

@@ -1,5 +1,5 @@
 [Unit]
-Description=Mitsuko G1 phone companion relay
+Description=G1 Light Sync phone companion relay
 After=network.target
 
 [Service]

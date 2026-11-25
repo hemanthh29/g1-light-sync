@@ -151,7 +151,7 @@ class G1:
         try:
             import hid
         except ImportError:
-            sys.exit("Missing HID binding. Install the package dependencies with `sudo apt install python3-hid` or reinstall the Mitsuko G1 package.")
+            sys.exit("Missing HID binding. Install the package dependencies with `sudo apt install python3-hid` or reinstall the G1 Light Sync package.")
         self.hid, self.order, self.verbose = hid, order.upper(), verbose
         self.no_end = False         # True = do not force the last group to end at 254
         self.proto = proto          # "section" (0x86, known to work) or "sync" (0x80 'SC' frames)
@@ -161,7 +161,7 @@ class G1:
         if path is None:
             cands = [d for d in hid.enumerate(VID, PID) if d.get("interface_number", 0) in (0, -1)]
             if not cands:
-                sys.exit("Mitsuko G1 (1a86:fe07) not found. Check `lsusb` and the udev rule.")
+                sys.exit("Phantom G1 (1a86:fe07) not found. Check `lsusb` and the udev rule.")
             path = cands[0]["path"]
         elif isinstance(path, str):
             path = path.encode()
@@ -779,7 +779,7 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
 
 # --------------------------------------------------------------------- CLI --
 def main():
-    ap = argparse.ArgumentParser(description="Mitsuko Phantom G1 controller")
+    ap = argparse.ArgumentParser(description="G1 Light Sync unofficial controller for Mitsuko Phantom G1")
     ap.add_argument("--path", help="hidraw path (default: auto-detect 1a86:fe07)")
     ap.add_argument("--order", default="RGB", help="channel order if colors look wrong, e.g. GRB")
     ap.add_argument("-v", "--verbose", action="store_true", help="print raw packets")

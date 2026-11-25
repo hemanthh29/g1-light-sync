@@ -102,7 +102,7 @@ final class CompanionModel: ObservableObject {
     func send(_ action: String, fields: [String: Any] = [:]) async {
         guard let baseURL, let token else {
             if laptopFound { showPairing = true }
-            else { message = "Open Mitsuko G1 on the laptop and connect both devices to Wi-Fi." }
+            else { message = "Open G1 Light Sync on the laptop and connect both devices to Wi-Fi." }
             return
         }
         isWorking = true

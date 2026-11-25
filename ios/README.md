@@ -1,6 +1,6 @@
-# Mitsuko G1 for iOS
+# G1 Light Sync for iOS
 
-Native SwiftUI companion for controlling Mitsuko G1 over the same Wi-Fi network. It discovers the laptop through Bonjour (`_mitsukog1._tcp`), so no laptop address is typed. First-time pairing uses the laptop's one-time code; the app stores its access token in the iOS Keychain and reconnects automatically afterward.
+Native SwiftUI app and unofficial companion for the Mitsuko Phantom G1. It controls the lights through the Linux host over the same Wi-Fi network. It discovers the laptop through Bonjour (`_mitsukog1._tcp`), so no laptop address is typed. First-time pairing uses the laptop's one-time code; the app stores its access token in the iOS Keychain and reconnects automatically afterward.
 
 The app includes screen sync, music reactive modes, stop and lights off, brightness, color presets, lighting effects, and saved profiles. The phone talks directly to the laptop bridge; light control remains on the laptop.
 
@@ -8,7 +8,7 @@ The iPhone asks for Local Network access the first time it searches for the lapt
 
 ## Build and install without owning a Mac
 
-The `.github/workflows/ios-unsigned-build.yml` workflow builds an unsigned IPA on a GitHub Actions macOS runner. It uses no signing credentials. Run **Actions → Build unsigned iOS IPA → Run workflow** and download the `MitsukoG1-unsigned-IPA` artifact.
+The `.github/workflows/ios-unsigned-build.yml` workflow builds an unsigned IPA on a GitHub Actions macOS runner. It uses no signing credentials. Run **Actions → Build G1 Light Sync iOS IPA → Run workflow** and download the `G1LightSync-unsigned-IPA` artifact.
 
 On the Linux laptop, install the official [iLoader](https://github.com/nab138/iloader/releases/latest) release and `usbmuxd`, connect the iPhone by USB, unlock it, and tap **Trust**. iLoader can sign and install an IPA using your Apple Account. This uses your Apple Account on your own computer; do not send its password to anyone. On iOS 16 and later, turn on Developer Mode. A free Apple Account signing profile expires after seven days, so use SideStore to refresh the installed app or reinstall with iLoader when it expires. SideStore requires the LocalDevVPN app while refreshing; see its [official Linux setup instructions](https://github.com/SideStore/SideStore-Docs/blob/main/docs/installation/prerequisites.mdx).
 

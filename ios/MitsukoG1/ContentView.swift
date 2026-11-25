@@ -57,7 +57,7 @@ struct ContentView: View {
                     colorSection
                     effectsSection
                     profilesSection
-                    Text("Keep Mitsuko G1 open on the laptop. Your iPhone and laptop must be on the same Wi-Fi.")
+                    Text("Keep G1 Light Sync open on the laptop. Your iPhone and laptop must be on the same Wi-Fi.")
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .foregroundStyle(Palette.muted)
@@ -70,7 +70,7 @@ struct ContentView: View {
             }
         }
         .sheet(isPresented: $model.showPairing) { pairingSheet }
-        .alert("Mitsuko G1", isPresented: $showCode) {
+        .alert("G1 Light Sync", isPresented: $showCode) {
             Button("OK", role: .cancel) { }
         } message: {
             Text(model.message)
@@ -85,8 +85,8 @@ struct ContentView: View {
                 .frame(width: 44, height: 44)
                 .background(Palette.green, in: RoundedRectangle(cornerRadius: 14))
             VStack(alignment: .leading, spacing: 2) {
-                Text("MITSUKO").font(.caption.weight(.bold)).tracking(1.1).foregroundStyle(Palette.text)
-                Text("LIGHT SYNC").font(.system(size: 10, weight: .semibold)).tracking(1.5).foregroundStyle(Palette.muted)
+                Text("G1 LIGHT SYNC").font(.caption.weight(.bold)).tracking(1.1).foregroundStyle(Palette.text)
+                Text("UNOFFICIAL PHANTOM G1 COMPANION").font(.system(size: 8, weight: .semibold)).tracking(0.6).foregroundStyle(Palette.muted)
             }
             Spacer()
             Button {
@@ -260,7 +260,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 Text("Pair with your laptop")
                     .font(.title2.weight(.bold)).foregroundStyle(Palette.text)
-                Text("On the laptop, open Mitsuko G1 → Phone Wi-Fi setup. Enter its one-time code below. After pairing, this iPhone will find it automatically on your Wi-Fi.")
+                Text("On the laptop, open G1 Light Sync → Phone Wi-Fi setup. Enter its one-time code below. After pairing, this iPhone will find it automatically on your Wi-Fi.")
                     .font(.subheadline).foregroundStyle(Palette.muted)
                 TextField("8-digit pairing code", text: $pairCode)
                     .keyboardType(.numberPad)

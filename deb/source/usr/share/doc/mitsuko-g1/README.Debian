@@ -1,7 +1,10 @@
-Mitsuko G1 Light Sync
-=====================
+G1 Light Sync
+=============
 
-Launch “Mitsuko G1 Light Sync” from the applications menu, or run:
+Unofficial companion for the Mitsuko Phantom G1. This independent project is
+not affiliated with or endorsed by Mitsuko.
+
+Launch “G1 Light Sync” from the applications menu, or run:
   mitsuko-g1
 
 The command-line controller is available as:

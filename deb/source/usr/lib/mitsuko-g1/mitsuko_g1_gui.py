@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Small desktop control panel for the Mitsuko Phantom G1."""
+"""G1 Light Sync desktop companion for the Mitsuko Phantom G1."""
 from __future__ import annotations
 
 import ast
@@ -408,7 +408,7 @@ class App(tk.Tk):
         # Keep Tk's point-sized fonts proportional to the selected 1220px mockup
         # on high-DPI 4K desktops where the system default is visibly oversized.
         self.tk.call("tk", "scaling", 1.0)
-        self.title("Mitsuko G1 · Light Sync")
+        self.title("G1 Light Sync")
         self.logo_image = None
         self.brand_image = None
         try:
@@ -499,7 +499,7 @@ class App(tk.Tk):
             if children:
                 x11.XFree(children)
             target_window = parent.value if parent.value != root_window.value else self.winfo_id()
-            hint = XClassHint(b"mitsuko-g1", b"MitsukoG1")
+            hint = XClassHint(b"g1-light-sync", b"G1LightSync")
             x11.XSetClassHint(display, target_window, ctypes.byref(hint))
             x11.XFlush(display)
             x11.XCloseDisplay(display)
@@ -784,7 +784,7 @@ class App(tk.Tk):
         monitor = shutil.which("dbus-monitor")
         if not monitor:
             messagebox.showerror("Notification flash unavailable",
-                "dbus-monitor is missing. Install the latest Mitsuko G1 package, which includes the required D-Bus tools.",
+                "dbus-monitor is missing. Install the latest G1 Light Sync package, which includes the required D-Bus tools.",
                 parent=self)
             return False
         match = "type='method_call',interface='org.freedesktop.Notifications',member='Notify'"
@@ -914,7 +914,8 @@ class App(tk.Tk):
         brand_mark.pack(side="left", padx=(0, 12))
         title_box = ttk.Frame(header, style="Header.TFrame")
         title_box.pack(side="left")
-        ttk.Label(title_box, text="Mitsuko G1 / Light Sync", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="G1 Light Sync", style="Title.TLabel").pack(anchor="w")
+        ttk.Label(title_box, text="Unofficial companion for Mitsuko Phantom G1", style="Sub.TLabel").pack(anchor="w")
 
         status_box = ttk.Frame(header, style="Header.TFrame")
         status_box.pack(side="left", fill="x", expand=True, padx=(28, 12))
@@ -985,7 +986,7 @@ class App(tk.Tk):
 
         window = tk.Toplevel(self)
         self._phone_setup_window = window
-        window.title("Phone Wi-Fi setup · Mitsuko G1")
+        window.title("Phone Wi-Fi setup · G1 Light Sync")
         window.configure(bg=BG)
         window.transient(self)
         window.resizable(False, False)
@@ -1005,7 +1006,7 @@ class App(tk.Tk):
         heading_text = ttk.Frame(heading_line, style="Card.TFrame")
         heading_text.pack(side="left", fill="x", expand=True)
         ttk.Label(heading_text, text="Phone Wi-Fi setup", style="Title.TLabel").pack(anchor="w")
-        ttk.Label(heading_text, text="Keep the relay ready while Mitsuko is closed.",
+        ttk.Label(heading_text, text="Keep the relay ready while G1 Light Sync is closed.",
                   style="Sub.TLabel").pack(anchor="w", pady=(3, 0))
 
         def close_window():
@@ -1031,7 +1032,7 @@ class App(tk.Tk):
         relay_switch = ToggleSwitch(relay_top, relay_enabled)
         relay_switch.pack(side="right", padx=(12, 0))
         ttk.Label(relay_card,
-                  text="When on, the background service starts with your desktop and stays available after you close Mitsuko.",
+                  text="When on, the background service starts with your desktop and stays available after you close G1 Light Sync.",
                   style="Muted.Card.TLabel", wraplength=520).pack(anchor="w", pady=(13, 0))
 
         connection_card = self._card(shell, padding=15)
@@ -2340,7 +2341,7 @@ class App(tk.Tk):
                      action_label=None, subtitle=None):
         initial_color = initial_color or self.color
         picker = tk.Toplevel(self)
-        picker.title("Choose LED color · Mitsuko G1")
+        picker.title("Choose LED color · G1 Light Sync")
         picker.configure(bg=BG)
         picker.transient(self)
         picker.resizable(False, False)
@@ -2556,13 +2557,13 @@ class App(tk.Tk):
                 AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS)
             indicator.set_status(AyatanaAppIndicator3.IndicatorStatus.ACTIVE)
             indicator.set_icon_theme_path(str(ROOT))
-            indicator.set_icon_full("mitsuko-g1", "Mitsuko G1")
+            indicator.set_icon_full("mitsuko-g1", "G1 Light Sync")
             menu = Gtk.Menu()
-            show_item = Gtk.MenuItem(label="Open Mitsuko G1")
+            show_item = Gtk.MenuItem(label="Open G1 Light Sync")
             show_item.connect("activate", lambda *_args: self._restore_from_tray())
             menu.append(show_item)
             menu.append(Gtk.SeparatorMenuItem())
-            quit_item = Gtk.MenuItem(label="Quit Mitsuko G1")
+            quit_item = Gtk.MenuItem(label="Quit G1 Light Sync")
             quit_item.connect("activate", lambda *_args: self._on_close())
             menu.append(quit_item)
             menu.show_all()
@@ -2589,8 +2590,8 @@ class App(tk.Tk):
             # behavior is to remain available from the top-panel indicator.
             messagebox.showerror(
                 "Top-panel indicator unavailable",
-                "Mitsuko G1 could not start its top-panel indicator, so the window will stay open. "
-                "Install the latest Mitsuko G1 package to add the required indicator support.\n\n"
+                "G1 Light Sync could not start its top-panel indicator, so the window will stay open. "
+                "Install the latest G1 Light Sync package to add the required indicator support.\n\n"
                 f"Details: {getattr(self, '_tray_error', 'unknown error')}",
                 parent=self,
             )
