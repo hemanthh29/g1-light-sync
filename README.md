@@ -14,6 +14,12 @@ This public repository contains the source projects for all three platforms. Ins
 
 The [full release history](https://github.com/hemanthh29/mitsuko-g1/releases) keeps older builds. Release tags identify their platform: `deb-…` for Linux, `android-…` for Android, and `ios-…` for iOS.
 
+## License
+
+The original Mitsuko G1 code and project-created assets are offered under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). People may use, modify, and share them for personal and other noncommercial purposes under the license terms. **Commercial use requires separate permission.** This is a source-available, noncommercial license; it is not an OSI-approved open-source license.
+
+Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `deb/source/usr/share/doc/mitsuko-g1/copyright`, and the bundled notices.
+
 ## What each app does
 
 ### Linux desktop app
