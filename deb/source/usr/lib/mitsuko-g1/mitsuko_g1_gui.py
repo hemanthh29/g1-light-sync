@@ -2379,9 +2379,7 @@ class App(tk.Tk):
 
         def draw_preview(color):
             preview.delete("all")
-            preview.create_oval(4, 4, 54, 54, fill=color, outline=BORDER, width=2)
-            preview.create_text(76, 29, text=color.upper(), fill=TEXT,
-                                font=(FONT, 9, "bold"), anchor="center")
+            preview.create_oval(23, 4, 73, 54, fill=color, outline=BORDER, width=2)
 
         def draw_marker():
             x = state["saturation"] * (sv_width - 1)
