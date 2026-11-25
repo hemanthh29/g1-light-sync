@@ -8,7 +8,7 @@ This public repository contains the source projects for all three platforms. Ins
 
 | Platform | Latest build | Download | Checksum |
 | --- | --- | --- | --- |
-| Linux | Debian package `1.0.10-34` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-34) | `SHA256SUMS.txt` attached to the release |
+| Linux | Debian package `1.0.10-35` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-35) | `SHA256SUMS.txt` attached to the release |
 | Android | APK `1.4` (version code 5) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.4) | `SHA256SUMS.txt` attached to the release |
 | iOS | IPA `1.2` (build 5) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.2-build5) | `SHA256SUMS.txt` attached to the release |
 
@@ -18,7 +18,7 @@ The [full release history](https://github.com/hemanthh29/g1-light-sync/releases)
 
 The original G1 Light Sync code and project-created assets are offered under the [PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0). People may use, modify, and share them for personal and other noncommercial purposes under the license terms. **Commercial use requires separate permission.** This is a source-available, noncommercial license; it is not an OSI-approved open-source license.
 
-Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `deb/source/usr/share/doc/mitsuko-g1/copyright`, and the bundled notices.
+Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `deb/usr/share/doc/mitsuko-g1/copyright`, and the bundled notices.
 
 ## What each app does
 
@@ -33,7 +33,7 @@ The Linux app is the host and owns the USB connection to the G1. It runs on Debi
 - Optional desktop notification lighting with five patterns and a chosen alert color. It runs only while the strip is off or in a steady solid-color state; active effects and sync modes are left running.
 - A tray icon and a phone relay that can stay on after the main window closes.
 
-**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-34), then install it with `sudo apt install ./g1-light-sync_1.0.10-34_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
+**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-35), then install it with `sudo apt install ./g1-light-sync_1.0.10-35_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
 
 ### Android companion app
 
@@ -73,7 +73,7 @@ The relay sends control commands to the Linux app; the Linux host continues to h
 ├── README.md                     Project overview, features, downloads, and setup
 ├── deb/                          Linux Debian package source tree
 │   ├── DEBIAN/                   Package metadata and install/remove scripts
-│   └── source/                   Files installed by the Debian package
+│   └── usr/                      Files installed by the Debian package
 ├── android/                      Android Studio / Gradle companion project
 │   ├── app/src/                  Android app source and resources
 │   └── phone_bridge.py           USB debugging bridge used by the companion
@@ -114,7 +114,7 @@ The iOS project requires Xcode to build locally. Since the IPA is unsigned, the 
 
 Publish each platform independently and retain its older version tags:
 
-- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-34`)
+- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-35`)
 - Android: `android-<version>` (for example, `android-1.4`)
 - iOS: `ios-<version>-build<build>` (for example, `ios-1.2-build5`)
 
