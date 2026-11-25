@@ -286,21 +286,55 @@ public class MainActivity extends Activity {
     }
     private void showWifiSetup(){
         LinearLayout form=column();form.setPadding(dp(22),dp(8),dp(22),0);
-        EditText host=new EditText(this);host.setSingleLine(true);host.setHint("Laptop Wi-Fi address, e.g. 192.168.1.5");host.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_URI);form.addView(host,lp(-1,52));
+        TextView laptop=label("Searching for your laptop…",13,MUTED,false);form.addView(laptop,lp(-1,36));
+        Button find=button("Find laptop",false);form.addView(find,lp(-1,44));
         EditText pin=new EditText(this);pin.setSingleLine(true);pin.setHint("8-digit pairing code from laptop");pin.setInputType(InputType.TYPE_CLASS_NUMBER|InputType.TYPE_NUMBER_VARIATION_PASSWORD);form.addView(pin,lp(-1,52));
         AlertDialog dialog=new AlertDialog.Builder(this).setTitle("Connect over Wi-Fi")
-            .setMessage("Put your phone and laptop on the same Wi-Fi. In G1 Light Sync on the laptop, tap Phone Wi-Fi setup to see its address and pairing code.")
+            .setMessage("Put your phone and laptop on the same Wi-Fi. In G1 Light Sync on the laptop, open Phone Wi-Fi setup to get the one-time pairing code.")
             .setView(form).setNegativeButton("Cancel",null).setPositiveButton("Pair",null).create();
-        dialog.setOnShowListener(v->dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(view->{
-            String address=host.getText().toString().trim();String code=pin.getText().toString().trim();
-            if(address.startsWith("http://"))address=address.substring(7);if(address.endsWith("/"))address=address.substring(0,address.length()-1);if(!address.contains(":"))address+=":8765";
-            if(address.isEmpty()||code.length()!=8){Toast.makeText(this,"Enter the laptop address and 8-digit code",Toast.LENGTH_SHORT).show();return;}
-            final String base="http://"+address;final String pairingCode=code;dialog.dismiss();
-            io.execute(()->{try{JSONObject result=request(base+"/api/pair",null,"POST",json("pin",pairingCode));
-                getPreferences(MODE_PRIVATE).edit().putString("wifiBase",base).putString("wifiToken",result.getString("token")).apply();
-                runOnUiThread(()->{Toast.makeText(this,"Paired over Wi-Fi",Toast.LENGTH_SHORT).show();refresh(true);});
-            }catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Wi-Fi pairing failed: "+e.getMessage(),Toast.LENGTH_LONG).show());}});
-        }));dialog.show();
+        final String[] selectedBase={""};
+        dialog.setOnShowListener(v->{
+            Button pair=dialog.getButton(AlertDialog.BUTTON_POSITIVE);pair.setEnabled(false);
+            Runnable scan=()->{
+                selectedBase[0]="";pair.setEnabled(false);laptop.setText("Searching for your laptop…");
+                io.execute(()->{
+                    List<String> bases=discoverWifiBases();
+                    runOnUiThread(()->{
+                        if(!dialog.isShowing())return;
+                        if(bases.isEmpty()){
+                            laptop.setText("No laptop found · check Wi-Fi and relay, then try again");
+                            return;
+                        }
+                        selectedBase[0]=bases.get(0);pair.setEnabled(true);
+                        if(bases.size()==1){
+                            laptop.setText("Laptop found · "+bases.get(0).replace("http://",""));
+                        }else{
+                            String[] labels=new String[bases.size()];
+                            for(int i=0;i<bases.size();i++)labels[i]="G1 Light Sync · "+bases.get(i).replace("http://","");
+                            laptop.setText("Found "+bases.size()+" laptops · selected "+bases.get(0).replace("http://",""));
+                            new AlertDialog.Builder(MainActivity.this).setTitle("Choose laptop")
+                                .setSingleChoiceItems(labels,0,(choice,index)->{
+                                    selectedBase[0]=bases.get(index);
+                                    laptop.setText("Laptop selected · "+selectedBase[0].replace("http://",""));
+                                    choice.dismiss();
+                                }).setNegativeButton("Cancel",null).show();
+                        }
+                    });
+                });
+            };
+            find.setOnClickListener(view->scan.run());
+            pair.setOnClickListener(view->{
+                String code=pin.getText().toString().trim();
+                if(selectedBase[0].isEmpty()){Toast.makeText(this,"Find your laptop first",Toast.LENGTH_SHORT).show();return;}
+                if(code.length()!=8){Toast.makeText(this,"Enter the 8-digit code shown by the laptop",Toast.LENGTH_SHORT).show();return;}
+                final String base=selectedBase[0];final String pairingCode=code;dialog.dismiss();
+                io.execute(()->{try{JSONObject result=request(base+"/api/pair",null,"POST",json("pin",pairingCode));
+                    getPreferences(MODE_PRIVATE).edit().putString("wifiBase",base).putString("wifiToken",result.getString("token")).apply();
+                    runOnUiThread(()->{Toast.makeText(this,"Paired over Wi-Fi",Toast.LENGTH_SHORT).show();refresh(true);});
+                }catch(Exception e){runOnUiThread(()->Toast.makeText(this,"Wi-Fi pairing failed: "+e.getMessage(),Toast.LENGTH_LONG).show());}});
+            });
+            scan.run();
+        });dialog.show();
     }
     private String read(InputStream in)throws Exception{StringBuilder s=new StringBuilder();try(BufferedReader r=new BufferedReader(new InputStreamReader(in,StandardCharsets.UTF_8))){String line;while((line=r.readLine())!=null)s.append(line);}return s.toString();}
 }
