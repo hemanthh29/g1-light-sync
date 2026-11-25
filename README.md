@@ -8,7 +8,7 @@ This public repository contains the source projects for all three platforms. Ins
 
 | Platform | Latest build | Download | Checksum |
 | --- | --- | --- | --- |
-| Linux | Debian package `1.0.10-39` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-39) | `SHA256SUMS.txt` attached to the release |
+| Linux | Debian package `1.0.10-40` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-40) | `SHA256SUMS.txt` attached to the release |
 | Android | APK `1.8.1` (version code 10) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.1) | `SHA256SUMS.txt` attached to the release |
 | iOS | IPA `1.4` (build 7) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build7) | `SHA256SUMS.txt` attached to the release |
 
@@ -26,15 +26,15 @@ Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `
 
 The Linux app is the host and owns the USB connection to the G1. It runs on Debian-based desktops and provides:
 
-- Screen sync that maps captured monitor colors to the strip perimeter. X11 capture is supported; on Wayland, select a monitor through the desktop screen-sharing portal.
-- Music-reactive lighting with Combined, Bass, Treble, and Voice modes, sensitivity, edge sampling, smoothing, and per-zone colors.
+- Screen sync that maps captured monitor colors to the strip perimeter, with adjustable edge sampling and smoothing. X11 capture is supported; on Wayland, select a monitor through the desktop screen-sharing portal.
+- Music-reactive lighting with Combined, Bass, Treble, and Voice modes, beat and transient accents, sensitivity, and per-zone colors.
 - Built-in Dynamic and Pickup presets, plus the app-generated Color Flow, Aurora, Breathe, Comet, and Ember effects.
 - Solid color, brightness, power, saved profiles, and device status controls. The live-mode stop button also turns the LEDs off.
 - Optional desktop notification lighting with five patterns and a chosen alert color. It runs only while the strip is off or in a steady solid-color state; active effects and sync modes are left running.
 - A tray icon and a phone relay that can stay on after the main window closes. The relay supports starting all five app-generated lighting effects from either mobile app.
 - Connected phone names in the title card, plus live lighting status shared with the companion apps. Switching to Screen Sync or another mode on a phone updates the desktop status automatically.
 
-**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-39), then install it with `sudo apt install ./g1-light-sync_1.0.10-39_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
+**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-40), then install it with `sudo apt install ./g1-light-sync_1.0.10-40_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
 
 ### Android companion app
 
@@ -117,7 +117,7 @@ The iOS project requires Xcode to build locally. Since the IPA is unsigned, the 
 
 Publish each platform independently and retain its older version tags:
 
-- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-39`)
+- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-40`)
 - Android: `android-<version>` (for example, `android-1.8.1`)
 - iOS: `ios-<version>-build<build>` (for example, `ios-1.4-build7`)
 

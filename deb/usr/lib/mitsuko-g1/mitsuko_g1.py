@@ -698,19 +698,30 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
         labels = {"combined": "Combined", "bass": "Bass", "treble": "Treble", "voice": "Voice emphasis (approx.)"}
         print(f"{labels[mode]} music mode running at up to {fps} FPS; capturing PipeWire output. Ctrl+C to stop.", flush=True)
         levels = np.zeros(4, dtype=np.float32)
+        band_reference = None
         audio_history = np.zeros(window_size, dtype=np.float32)
         previous_spectrum = np.zeros(window_size // 2 + 1, dtype=np.float32)
-        previous_bass_level = 0.0
         bass_hit = 0.0
+        voice_hit = 0.0
         treble_hit = 0.0
         zone_hsv = {name: colorsys.rgb_to_hsv(*(channel / 255 for channel in zone_colors[name]))
                     for name in ("bass", "voice", "treble")}
         last_report = time.monotonic()
         frequencies = np.fft.rfftfreq(window_size, 1 / rate)
-        bands = ((35, 150), (150, 400), (400, 3400), (3400, 10000))
+        # Include upper harmonics such as cymbals and bright percussion in
+        # the treble band; these often carry the clearest transient cues.
+        bands = ((35, 150), (150, 400), (400, 3400), (3400, 16000))
         masks = [(frequencies >= low) & (frequencies < high) for low, high in bands]
+        bass_mask = masks[0]
+        voice_mask = masks[2]
         high_mask = masks[3]
         window = np.hanning(window_size).astype(np.float32)
+
+        def transient_strength(flux, previous_band):
+            # Positive spectral flux catches attacks (kick, snare, syllables,
+            # cymbal hits) independently of the band's sustained loudness.
+            relative_flux = flux / max(0.0005, float(previous_band.sum()))
+            return min(1.0, max(0.0, (relative_flux - 0.025) / 0.18))
 
         def rgb_for_zone(name, value):
             hue, saturation, base_value = zone_hsv[name]
@@ -743,48 +754,61 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=No
                 gain = 8.0 + 2.0 * sensitivity
                 energies.append(1.0 - math.exp(-energy * gain))
             current = np.asarray(energies, dtype=np.float32)
+            if band_reference is None:
+                band_reference = np.maximum(current.copy(), 0.04)
+            normalized = np.zeros_like(current)
             for index, target in enumerate(current):
-                rate_factor = 0.70 if target > levels[index] else 0.28
+                reference = float(band_reference[index])
+                reference_rate = 0.12 if target > reference else 0.03
+                band_reference[index] += (target - reference) * reference_rate
+                relative_level = float(target) / max(0.04, float(band_reference[index]))
+                normalized[index] = min(1.0, max(0.0, (relative_level - 0.45) / 1.10))
+            for index, target in enumerate(normalized):
+                # Fast attack keeps beats crisp; the slower release gives each
+                # hit a visible tail instead of letting it disappear instantly.
+                rate_factor = 0.84 if target > levels[index] else 0.20
                 levels[index] += (target - levels[index]) * rate_factor
 
-            bass_rise = max(0.0, float(levels[0]) - previous_bass_level)
-            bass_hit = max(bass_hit * 0.62, min(1.0, bass_rise * 5.0))
+            bass_flux = float(np.maximum(spectrum[bass_mask] - previous_spectrum[bass_mask], 0).sum())
+            voice_flux = float(np.maximum(spectrum[voice_mask] - previous_spectrum[voice_mask], 0).sum())
             high_flux = float(np.maximum(spectrum[high_mask] - previous_spectrum[high_mask], 0).sum())
-            high_total = float(previous_spectrum[high_mask].sum())
-            treble_hit = max(treble_hit * 0.52, min(1.0, high_flux / max(0.015, high_total * 0.8)))
+            bass_onset = transient_strength(bass_flux, previous_spectrum[bass_mask])
+            voice_onset = transient_strength(voice_flux, previous_spectrum[voice_mask])
+            treble_onset = transient_strength(high_flux, previous_spectrum[high_mask])
             previous_spectrum = spectrum.copy()
-            previous_bass_level = float(levels[0])
 
             rms = float(np.sqrt(np.mean(audio_history * audio_history)))
             gate = min(1.0, max(0.0, (rms - 0.002) / 0.025))
+            bass_hit = max(bass_hit * 0.84, bass_onset * gate)
+            voice_hit = max(voice_hit * 0.82, voice_onset * gate)
+            treble_hit = max(treble_hit * 0.84, treble_onset * gate)
 
             if time.monotonic() - last_report >= 1.0:
                 print("Audio levels · bass {:.2f} · low-mid {:.2f} · voice-range {:.2f} · treble {:.2f}".format(*levels), flush=True)
                 last_report = time.monotonic()
 
             if mode == "bass":
-                value = 0.025 + 0.82 * float(levels[0]) + 0.40 * bass_hit
+                value = 0.025 + 0.50 * float(levels[0]) + 1.05 * bass_hit
                 color = rgb_for_zone("bass", value)
             elif mode == "treble":
-                value = 0.02 + 0.65 * float(levels[3]) + 0.62 * treble_hit
+                value = 0.02 + 0.45 * float(levels[3]) + 1.05 * treble_hit
                 color = rgb_for_zone("treble", value)
             elif mode == "voice":
-                value = 0.025 + 0.92 * float(levels[2])
+                value = 0.025 + 0.70 * float(levels[2]) + 0.90 * voice_hit
                 color = rgb_for_zone("voice", value)
             else:
-                # Combined is spatially mapped around the monitor perimeter:
-                # bass owns the bottom, voice/mids the two sides, treble the
-                # top. A kick brightens the whole frame, then decays smoothly.
-                # This preserves the information that was lost when all 94
-                # LEDs were collapsed to one HSV color.
+                # Keep the spatial mapping, but make musical attacks much more
+                # visible: bass hits pulse the bottom and lightly lift the
+                # sides/top; voice and treble attacks accent their own zones.
                 bass = float(levels[0])
                 low_mid = float(levels[1])
                 voice = float(levels[2])
                 treble = float(levels[3])
-                shared_beat = bass_hit
-                bass_color = rgb_for_zone("bass", 0.018 + 0.72 * bass + 0.72 * shared_beat)
-                voice_color_rgb = rgb_for_zone("voice", 0.018 + 0.62 * voice + 0.24 * low_mid + 0.18 * shared_beat)
-                treble_color = rgb_for_zone("treble", 0.015 + 0.62 * treble + 0.58 * treble_hit + 0.12 * shared_beat)
+                bass_color = rgb_for_zone("bass", 0.025 + 0.50 * bass + 1.05 * bass_hit)
+                voice_color_rgb = rgb_for_zone(
+                    "voice", 0.025 + 0.52 * voice + 0.28 * low_mid + 0.90 * voice_hit + 0.34 * bass_hit
+                )
+                treble_color = rgb_for_zone("treble", 0.02 + 0.45 * treble + 1.05 * treble_hit + 0.38 * bass_hit)
                 sides_rgb = voice_color_rgb
                 colors = ([bass_color] * edge_counts["bottom"]
                           + [sides_rgb] * edge_counts["left"]
