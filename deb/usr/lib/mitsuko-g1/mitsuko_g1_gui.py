@@ -1825,14 +1825,15 @@ class App(tk.Tk):
             self.music_btn.configure(text="Music reactive active" if mode == "music" else "Switch to Music reactive")
             return
 
+        light_mode = light.get("mode")
+        can_turn_off = connected or light_mode in ("solid", "effect", "animate")
         if self.proc is None:
             self.external_pid = None
             self.active_mode = ""
-            self.stop_btn.configure(state="disabled", command=self.turn_off)
+            self.stop_btn.configure(state="normal" if can_turn_off else "disabled", command=self.turn_off)
         self.start_btn.configure(text="Start screen sync")
         self.music_btn.configure(text="Start music reactive")
 
-        light_mode = light.get("mode")
         if light_mode == "off":
             self.details.set("LEDs off")
         elif light_mode == "solid" and isinstance(light.get("color"), list) and len(light["color"]) == 3:
@@ -1927,6 +1928,7 @@ class App(tk.Tk):
                     if payload == "present":
                         self.status.set("G1 connected")
                         self.status_dot.itemconfigure(1, fill=GREEN)
+                        self.stop_btn.configure(state="normal", command=self.turn_off)
                         if self.active_mode:
                             self.details.set(f"{self.active_mode} running · USB controller detected")
                         elif self.pending_device_effect is None:
@@ -1943,6 +1945,7 @@ class App(tk.Tk):
                     result = json.loads(payload)
                     if result["callback"] == "info":
                         if result["code"] == 0:
+                            self.stop_btn.configure(state="normal", command=self.turn_off)
                             try:
                                 info = ast.literal_eval(result["out"].strip())
                                 self.status.set("G1 connected")
@@ -1965,12 +1968,15 @@ class App(tk.Tk):
                         self.details.set(output or "Device effect command completed")
                         if result["code"] != 0:
                             messagebox.showerror("Effect failed", output or "The device rejected the effect command.", parent=self)
-                        elif self.pending_device_effect is not None:
-                            self._remember_notification_state(("effect", *self.pending_device_effect))
+                        else:
+                            self.stop_btn.configure(state="normal", command=self.turn_off)
+                            if self.pending_device_effect is not None:
+                                self._remember_notification_state(("effect", *self.pending_device_effect))
                         self.pending_device_effect = None
                     elif result["callback"] == "solid_color":
                         output = (result["out"] or result["err"]).strip()
                         if result["code"] == 0:
+                            self.stop_btn.configure(state="normal", command=self.turn_off)
                             self._remember_notification_state(("color", *(int(self.color[index:index + 2], 16) for index in (1, 3, 5))))
                             self.details.set(f"Solid color applied · {self.color.upper()}")
                         else:

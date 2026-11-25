@@ -8,7 +8,7 @@ This public repository contains the source projects for all three platforms. Ins
 
 | Platform | Latest build | Download | Checksum |
 | --- | --- | --- | --- |
-| Linux | Debian package `1.0.10-37` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-37) | `SHA256SUMS.txt` attached to the release |
+| Linux | Debian package `1.0.10-38` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-38) | `SHA256SUMS.txt` attached to the release |
 | Android | APK `1.5` (version code 6) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.5) | `SHA256SUMS.txt` attached to the release |
 | iOS | IPA `1.3` (build 6) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.3-build6) | `SHA256SUMS.txt` attached to the release |
 
@@ -34,7 +34,7 @@ The Linux app is the host and owns the USB connection to the G1. It runs on Debi
 - A tray icon and a phone relay that can stay on after the main window closes.
 - Connected phone names in the title card, plus live lighting status shared with the companion apps. Switching to Screen Sync or another mode on a phone updates the desktop status automatically.
 
-**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-37), then install it with `sudo apt install ./g1-light-sync_1.0.10-37_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
+**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-38), then install it with `sudo apt install ./g1-light-sync_1.0.10-38_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
 
 ### Android companion app
 
@@ -116,7 +116,7 @@ The iOS project requires Xcode to build locally. Since the IPA is unsigned, the 
 
 Publish each platform independently and retain its older version tags:
 
-- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-37`)
+- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-38`)
 - Android: `android-<version>` (for example, `android-1.5`)
 - iOS: `ios-<version>-build<build>` (for example, `ios-1.3-build6`)
 
