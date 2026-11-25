@@ -460,8 +460,8 @@ class App(tk.Tk):
             self._clear_notification_state()
             self.status.set("Another live mode is controlling the strip")
             self.status_dot.itemconfigure(1, fill=GREEN)
-            self.details.set("Start another mode to switch, or stop live mode to end it")
-            self.stop_btn.configure(command=self.stop_external_mode, state="normal")
+            self.details.set("Start another mode to switch, or turn the LEDs off")
+            self.stop_btn.configure(command=self.turn_off, state="normal")
         else:
             self.after(350, self.read_info)
         self.after(600, self.refresh_diagnostics)
@@ -1312,8 +1312,8 @@ class App(tk.Tk):
         self.music_apply_brightness_btn.pack(fill="x")
         self.manual_widgets.append(self.music_apply_brightness_btn)
 
-        self.stop_btn = RoundedButton(controls_column, text="Stop live mode", style="Accent.TButton",
-            command=lambda: self.stop_sync() if self.proc is not None else self.stop_external_mode(), state="disabled")
+        self.stop_btn = RoundedButton(controls_column, text="Turn LEDs off", style="Stop.TButton",
+            command=self.turn_off, state="disabled")
         self.stop_btn.pack(fill="x", pady=(GAP, 0))
 
         other = self._card(controls_column, padding=14)
@@ -1894,6 +1894,7 @@ class App(tk.Tk):
                             messagebox.showerror("Could not apply color", output or "The G1 rejected the color command.", parent=self)
                     elif result["callback"] == "lights_off" and result["code"] == 0:
                         self._remember_notification_state(("off",))
+                        self.details.set("LEDs off")
                 elif kind == "diagnostics":
                     self.diagnostic.set(payload)
                 elif kind == "log":
@@ -1912,7 +1913,7 @@ class App(tk.Tk):
             self._clear_notification_state()
             self.start_btn.configure(state="normal")
             self.stop_btn.configure(state="disabled")
-            self.stop_btn.configure(text="Stop live mode")
+            self.stop_btn.configure(text="Turn LEDs off")
             self._set_manual_controls(True)
             if self._closing_after_stop:
                 self.pending_live_switch = None
@@ -2048,7 +2049,7 @@ class App(tk.Tk):
         self.external_pid = None
         self.active_mode = ""
         self._clear_notification_state()
-        self.stop_btn.configure(text="Stop live mode", command=self.stop_sync, state="disabled")
+        self.stop_btn.configure(text="Turn LEDs off", command=self.turn_off, state="disabled")
         self._set_manual_controls(True)
         if self._closing_after_stop:
             self.pending_live_switch = None
