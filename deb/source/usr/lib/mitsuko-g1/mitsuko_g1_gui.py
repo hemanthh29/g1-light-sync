@@ -1776,7 +1776,38 @@ class App(tk.Tk):
                 self.messages.put(("error", str(exc)))
         threading.Thread(target=worker, daemon=True).start()
 
+    @staticmethod
+    def _usb_controller_present():
+        """Check USB enumeration without opening the HID device interface."""
+        try:
+            for device in Path("/sys/bus/usb/devices").iterdir():
+                try:
+                    vendor = (device / "idVendor").read_text().strip().lower()
+                    product = (device / "idProduct").read_text().strip().lower()
+                except OSError:
+                    continue
+                if vendor == "1a86" and product == "fe07":
+                    return True
+        except OSError:
+            pass
+        return False
+
+    def _controller_is_busy(self):
+        local_mode_running = self.proc is not None and self.proc.poll() is None
+        return (local_mode_running or self.pending_device_effect is not None
+                or self._external_sync_pid() is not None)
+
+    def _check_usb_presence_async(self):
+        def worker():
+            present = self._usb_controller_present()
+            self.messages.put(("usb_presence", "present" if present else "missing"))
+        threading.Thread(target=worker, daemon=True).start()
+
     def read_info(self):
+        if self._controller_is_busy():
+            self.status.set("Checking USB presence…")
+            self._check_usb_presence_async()
+            return
         self.status.set("Checking for the G1…")
         self._run_async(self._base_cmd() + ["info"], "info")
 
@@ -1807,6 +1838,18 @@ class App(tk.Tk):
                         self.details.set("Notification flash complete · previous light state restored")
                     else:
                         self.details.set("Notification flash complete · live mode took control")
+                elif kind == "usb_presence":
+                    if payload == "present":
+                        self.status.set("G1 connected")
+                        self.status_dot.itemconfigure(1, fill=GREEN)
+                        if self.active_mode:
+                            self.details.set(f"{self.active_mode} running · USB controller detected")
+                        elif self.pending_device_effect is None:
+                            self.details.set("USB controller detected")
+                    else:
+                        self.status.set("G1 not detected")
+                        self.status_dot.itemconfigure(1, fill=RED)
+                        self.details.set("Check the USB cable and udev permissions")
                 elif kind == "error":
                     self.status.set("Could not check the device")
                     self.status_dot.itemconfigure(1, fill=RED)
@@ -2050,7 +2093,7 @@ class App(tk.Tk):
 
         def worker():
             try:
-                usb = subprocess.run(["lsusb", "-d", "1a86:fe07"], capture_output=True, text=True, timeout=4)
+                usb_present = self._usb_controller_present()
                 helper = self._capture_helper()
                 capture = subprocess.run([helper, "cast", "status", "--json"], capture_output=True,
                                          text=True, timeout=4)
@@ -2060,7 +2103,7 @@ class App(tk.Tk):
                     cap_text = f"capture running ({size})"
                 else:
                     cap_text = "capture stopped; choose a monitor to grant or restore access"
-                usb_text = "G1 connected" if usb.returncode == 0 and usb.stdout.strip() else "G1 not detected; check USB cable"
+                usb_text = "G1 connected" if usb_present else "G1 not detected; check USB cable"
                 self.messages.put(("diagnostics", f"{usb_text} · {cap_text}"))
             except Exception as exc:
                 self.messages.put(("diagnostics", f"Diagnostics unavailable: {exc}"))
