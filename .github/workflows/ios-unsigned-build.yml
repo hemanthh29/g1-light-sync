@@ -28,7 +28,7 @@ jobs:
             "$RUNNER_TEMP/MitsukoG1IPA/Payload/"
           ditto -c -k --sequesterRsrc --keepParent \
             "$RUNNER_TEMP/MitsukoG1IPA/Payload" dist/MitsukoG1-unsigned.ipa
-          shasum -a 256 dist/MitsukoG1-unsigned.ipa > dist/SHA256SUMS.txt
+          (cd dist && shasum -a 256 MitsukoG1-unsigned.ipa > SHA256SUMS.txt)
 
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
