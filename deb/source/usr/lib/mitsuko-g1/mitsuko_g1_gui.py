@@ -89,12 +89,14 @@ class RoundedButton(tk.Canvas):
         self.state = kwargs.pop("state", "normal")
         font = tkfont.Font(family=FONT, size=10, weight="bold" if style in {"Accent.TButton", "NavActive.TButton", "ModeActive.TButton"} else "normal")
         width = max(84, font.measure(text) + 34)
-        try:
-            parent_style = parent.cget("style")
-        except tk.TclError:
-            parent_style = ""
-        surface = PANEL if parent_style in {"Header.TFrame", "Sidebar.TFrame", "Card.TFrame", "CardAlt.TFrame"} else BG
-        super().__init__(parent, width=width, height=44, bg=kwargs.pop("bg", surface),
+        surface = getattr(parent, "surface_color", None)
+        if surface is None:
+            try:
+                parent_style = parent.cget("style")
+            except tk.TclError:
+                parent_style = ""
+            surface = PANEL if parent_style in {"Header.TFrame", "Sidebar.TFrame", "Card.TFrame", "CardAlt.TFrame"} else BG
+        super().__init__(parent, width=width, height=46, bg=kwargs.pop("bg", surface),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.font = font
         self.bind("<Configure>", lambda _event: self._draw())
@@ -156,7 +158,7 @@ class RoundedButton(tk.Canvas):
             fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         if disabled:
             fill, fg = "#17211e", "#6f8178"
-        self._round_rect(2, 2, width - 2, height - 2, 10, fill)
+        self._round_rect(2, 2, width - 2, height - 2, 14, fill)
         anchor = "w" if self.variant in {"Nav.TButton", "NavActive.TButton"} else "center"
         x = 14 if anchor == "w" else width / 2
         self.create_text(x, height / 2, text=self.label, fill=fg, font=self.font, anchor=anchor)
@@ -166,10 +168,72 @@ class RoundedButton(tk.Canvas):
         self.create_polygon(rounded_points(x1, y1, x2, y2, radius), fill=fill, outline="")
 
 
-class RoundedCard(ttk.Frame):
+class ToggleSwitch(tk.Canvas):
+    """A clear, keyboard-operable pill switch for BooleanVar settings."""
+    def __init__(self, parent, variable, command=None, **kwargs):
+        self.variable = variable
+        self.command = command
+        self.enabled = True
+        surface = getattr(parent, "surface_color", PANEL)
+        super().__init__(parent, width=58, height=34, bg=surface,
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True, **kwargs)
+        self.bind("<Button-1>", self._toggle)
+        self.bind("<space>", self._toggle)
+        self.bind("<Return>", self._toggle)
+        self.bind("<Configure>", lambda _event: self._draw())
+        self.bind("<FocusIn>", lambda _event: self._draw())
+        self.bind("<FocusOut>", lambda _event: self._draw())
+        self.variable.trace_add("write", self._variable_changed)
+        self._draw()
+
+    def _variable_changed(self, *_args):
+        try:
+            if self.winfo_exists():
+                self.after_idle(self._draw)
+        except tk.TclError:
+            pass
+
+    def _toggle(self, _event=None):
+        if not self.enabled:
+            return "break"
+        self.variable.set(not bool(self.variable.get()))
+        if self.command:
+            self.command()
+        return "break"
+
+    def configure(self, cnf=None, **kwargs):
+        if isinstance(cnf, dict):
+            kwargs.update(cnf)
+        if "state" in kwargs:
+            self.enabled = kwargs.pop("state") != "disabled"
+        result = super().configure(**kwargs) if kwargs else None
+        self._draw()
+        return result
+
+    config = configure
+
+    def _draw(self):
+        self.delete("all")
+        width, height = max(58, self.winfo_width()), max(34, self.winfo_height())
+        on = bool(self.variable.get())
+        track = ACCENT if on else "#34483f"
+        self.create_polygon(rounded_points(2, 3, width - 2, height - 3, (height - 6) / 2),
+                            fill=track, outline=track)
+        diameter = height - 12
+        x1 = width - diameter - 8 if on else 8
+        y1 = (height - diameter) / 2
+        thumb = BG if on else "#e1e9e4"
+        self.create_oval(x1, y1, x1 + diameter, y1 + diameter, fill=thumb, outline="")
+        if self.focus_get() == self:
+            self.create_polygon(rounded_points(1, 2, width - 1, height - 2, (height - 4) / 2),
+                                fill="", outline="#9beed3", width=1)
+
+
+class RoundedCard(tk.Frame):
     """Card with a subtle border, drawn behind its regular ttk contents."""
     def __init__(self, parent, padding=16):
-        super().__init__(parent, style="Root.TFrame", padding=padding)
+        super().__init__(parent, bg=BG, bd=0, highlightthickness=0, padx=padding, pady=padding)
+        self.surface_color = PANEL
         self.surface = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0)
         self.surface.place(x=0, y=0, relwidth=1, relheight=1)
         self.surface.tk.call("lower", self.surface._w)
@@ -180,7 +244,7 @@ class RoundedCard(ttk.Frame):
         width, height = self.winfo_width(), self.winfo_height()
         if width < 8 or height < 8:
             return
-        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 19
+        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 22
         self.surface.create_polygon(rounded_points(x1, y1, x2, y2, radius), fill=PANEL, outline=BORDER, width=1)
 
 
@@ -347,14 +411,24 @@ class App(tk.Tk):
         style.map("NavActive.TButton", background=[("active", PANEL_ALT)])
         style.configure("Mode.TRadiobutton", background=PANEL, foreground=TEXT, padding=(8, 8), font=(FONT, 10))
         style.map("Mode.TRadiobutton", background=[("selected", PANEL_ALT), ("active", PANEL_ALT)], foreground=[("selected", ACCENT), ("disabled", MUTED)])
-        style.configure("TEntry", fieldbackground="#0b1713", foreground=TEXT, insertcolor=TEXT, bordercolor=BORDER, padding=7, font=(FONT, 10))
-        style.configure("TSpinbox", fieldbackground="#0b1713", foreground=TEXT, arrowcolor=TEXT, bordercolor=BORDER, padding=6, font=(FONT, 10))
+        style.configure("TEntry", fieldbackground="#0b1713", foreground=TEXT, insertcolor=TEXT,
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
+        style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
+                  darkcolor=[("focus", ACCENT)])
+        style.configure("TSpinbox", fieldbackground="#0b1713", foreground=TEXT, arrowcolor=TEXT,
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                        borderwidth=0, relief="flat", padding=(10, 8), font=(FONT, 10))
         style.configure("TCombobox", fieldbackground="#0b1713", background=PANEL_ALT, foreground=TEXT,
-                        arrowcolor=ACCENT, bordercolor=BORDER, padding=7, font=(FONT, 10))
+                        arrowcolor=ACCENT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
         style.map("TCombobox", fieldbackground=[("readonly", "#0b1713")],
-                  foreground=[("readonly", TEXT)], selectbackground=[("readonly", PANEL_ALT)],
+                  foreground=[("readonly", TEXT)], bordercolor=[("focus", ACCENT)],
+                  selectbackground=[("readonly", PANEL_ALT)],
                   selectforeground=[("readonly", TEXT)])
-        style.configure("Horizontal.TScale", background=PANEL, troughcolor="#263b33")
+        style.configure("Horizontal.TScale", background=PANEL, troughcolor="#263b33",
+                        bordercolor="#263b33", lightcolor=ACCENT, darkcolor=ACCENT,
+                        borderwidth=0, relief="flat")
         style.configure("TSeparator", background=BORDER)
 
     def _use_mockup_window_size(self):
@@ -436,6 +510,11 @@ class App(tk.Tk):
         self.audio_sensitivity = tk.DoubleVar(value=float(settings.get("audio_sensitivity", 1.5)))
         self.audio_sensitivity_value = tk.StringVar(value=f"{self.audio_sensitivity.get():.1f}×")
         self.notification_flash_enabled = tk.BooleanVar(value=bool(settings.get("notification_flash", False)))
+        self.notification_switch_text = tk.StringVar(
+            value="On" if self.notification_flash_enabled.get() else "Off")
+        self.notification_flash_enabled.trace_add(
+            "write", lambda *_args: self.notification_switch_text.set(
+                "On" if self.notification_flash_enabled.get() else "Off"))
         self.notification_restore_state = self._valid_notification_state(settings.get("notification_restore_state"))
         saved_mode = settings.get("audio_mode", "combined")
         self.audio_mode = tk.StringVar(value=saved_mode if saved_mode in {"combined", "bass", "treble", "voice"} else "combined")
@@ -575,7 +654,7 @@ class App(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _card(self, parent, padding=16):
-        return RoundedCard(parent, padding=padding)
+        return RoundedCard(parent, padding=max(18, padding))
 
     def _layout(self):
         shell = RoundedCard(self, padding=0)
@@ -926,10 +1005,11 @@ class App(tk.Tk):
         notification_header = ttk.Frame(notification, style="Card.TFrame")
         notification_header.pack(fill="x")
         ttk.Label(notification_header, text="NOTIFICATION FLASH", style="Muted.Card.TLabel").pack(side="left")
-        self.notification_toggle = ttk.Checkbutton(
-            notification_header, text="Enable flash", variable=self.notification_flash_enabled,
-            command=self._toggle_notification_flash)
+        self.notification_toggle = ToggleSwitch(
+            notification_header, self.notification_flash_enabled, command=self._toggle_notification_flash)
         self.notification_toggle.pack(side="right")
+        ttk.Label(notification_header, textvariable=self.notification_switch_text,
+                  style="Card.TLabel").pack(side="right", padx=(0, 10))
         ttk.Label(notification,
                   text="Briefly flash the selected palette color when a desktop notification arrives.",
                   style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(7, 3))
@@ -958,10 +1038,7 @@ class App(tk.Tk):
         self._refresh_palette_swatches()
         color_row = ttk.Frame(color_card, style="Card.TFrame")
         color_row.pack(fill="x")
-        self.color_btn = tk.Button(color_row, text="Choose color", command=self.choose_color,
-                                   bg=PANEL_ALT, fg=TEXT, activebackground="#20372f",
-                                   activeforeground=TEXT, relief="flat", bd=0,
-                                   font=(FONT, 10, "bold"), padx=14, pady=10)
+        self.color_btn = RoundedButton(color_row, text="Choose color", command=self.choose_color)
         self.color_btn.pack(side="left")
         self.manual_widgets.append(self.color_btn)
         self.color_value = tk.StringVar(value=self.color.upper())
