@@ -32,15 +32,15 @@ for target, legacy in ((CONFIG, ROOT / "mitsuko_g1.json"), (GUI_CONFIG, ROOT / "
         except OSError:
             pass
 CAPTURE_HELPER = Path.home() / ".local/share/wayland-screenshot-venv/bin/wayland-screenshot"
-BG = "#10141c"
-PANEL = "#181e29"
-PANEL_ALT = "#222a38"
-TEXT = "#f2f3f7"
-MUTED = "#a5afc0"
-ACCENT = "#b6a8ff"
-GREEN = "#32c994"
-RED = "#ff8797"
-BORDER = "#303a4a"
+BG = "#07100e"
+PANEL = "#111f1b"
+PANEL_ALT = "#172823"
+TEXT = "#f2f7f4"
+MUTED = "#9bb1a6"
+ACCENT = "#46d6aa"
+GREEN = "#46d6aa"
+RED = "#ff8a70"
+BORDER = "#263b33"
 FONT = "Noto Sans"
 
 
@@ -62,14 +62,14 @@ class RoundedButton(tk.Canvas):
         self.command = command
         self.variant = style
         self.state = kwargs.pop("state", "normal")
-        font = tkfont.Font(family=FONT, size=7, weight="bold" if style in {"Accent.TButton", "NavActive.TButton"} else "normal")
-        width = max(76, font.measure(text) + 30)
+        font = tkfont.Font(family=FONT, size=10, weight="bold" if style in {"Accent.TButton", "NavActive.TButton", "ModeActive.TButton"} else "normal")
+        width = max(84, font.measure(text) + 34)
         try:
             parent_style = parent.cget("style")
         except tk.TclError:
             parent_style = ""
         surface = PANEL if parent_style in {"Header.TFrame", "Sidebar.TFrame", "Card.TFrame", "CardAlt.TFrame"} else BG
-        super().__init__(parent, width=width, height=40, bg=kwargs.pop("bg", surface),
+        super().__init__(parent, width=width, height=44, bg=kwargs.pop("bg", surface),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.font = font
         self.bind("<Configure>", lambda _event: self._draw())
@@ -86,7 +86,7 @@ class RoundedButton(tk.Canvas):
             kwargs.update(cnf)
         if "text" in kwargs:
             self.label = kwargs.pop("text")
-            self.configure(width=max(76, self.font.measure(self.label) + 30))
+            self.configure(width=max(84, self.font.measure(self.label) + 34))
         if "command" in kwargs:
             self.command = kwargs.pop("command")
         if "state" in kwargs:
@@ -114,23 +114,23 @@ class RoundedButton(tk.Canvas):
         width, height = max(1, self.winfo_width()), max(1, self.winfo_height())
         disabled = self.state == "disabled"
         if self.variant == "Accent.TButton":
-            fill, fg = ACCENT, "#171321"
+            fill, fg = ACCENT, BG
             if self._hovered and not disabled:
-                fill = "#c5bbff"
+                fill = "#68e3bb"
         elif self.variant == "Stop.TButton":
-            fill, fg = ("#302631" if not self._hovered else "#402b38"), "#ffb3bf"
+            fill, fg = ("#33231f" if not self._hovered else "#49302a"), "#ffb39e"
         elif self.variant in {"NavActive.TButton", "ModeActive.TButton"}:
             fill, fg = PANEL_ALT, ACCENT
             if self.variant == "ModeActive.TButton":
-                fill, fg = ACCENT, "#171321"
+                fill, fg = ACCENT, BG
         elif self.variant == "Mode.TButton":
-            fill, fg = ("#2b3445" if self._hovered else PANEL_ALT), TEXT
+            fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         elif self.variant == "Nav.TButton":
             fill, fg = (PANEL_ALT if self._hovered else PANEL), (TEXT if self._hovered else MUTED)
         else:
-            fill, fg = ("#303848" if self._hovered else PANEL_ALT), TEXT
+            fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         if disabled:
-            fill, fg = "#202633", "#737d8e"
+            fill, fg = "#17211e", "#6f8178"
         self._round_rect(2, 2, width - 2, height - 2, 10, fill)
         anchor = "w" if self.variant in {"Nav.TButton", "NavActive.TButton"} else "center"
         x = 14 if anchor == "w" else width / 2
@@ -189,7 +189,7 @@ class App(tk.Tk):
         self.nav_buttons = {}
         self.pages = {}
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
-        self.color = "#4c8dff"
+        self.color = "#46d6aa"
         try:
             stored_color = json.loads(CONFIG.read_text()).get("color")
             if isinstance(stored_color, list) and len(stored_color) == 3:
@@ -225,31 +225,36 @@ class App(tk.Tk):
         style.configure("Sidebar.TFrame", background=PANEL)
         style.configure("Card.TFrame", background=PANEL)
         style.configure("CardAlt.TFrame", background=PANEL_ALT)
-        style.configure("TLabel", background=BG, foreground=TEXT, font=(FONT, 8))
-        style.configure("Card.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 8))
-        style.configure("Muted.Card.TLabel", background=PANEL, foreground=MUTED, font=(FONT, 7))
-        style.configure("Title.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 9, "bold"))
-        style.configure("Sub.TLabel", background=PANEL, foreground=MUTED, font=(FONT, 7))
-        style.configure("PageTitle.TLabel", background=BG, foreground=TEXT, font=(FONT, 6, "bold"))
-        style.configure("PageSub.TLabel", background=BG, foreground=MUTED, font=(FONT, 7))
-        style.configure("Section.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 6, "bold"))
-        style.configure("Status.TLabel", background=PANEL, foreground=GREEN, font=(FONT, 8, "bold"))
-        style.configure("TButton", font=(FONT, 9), padding=(11, 8), background=PANEL_ALT, foreground=TEXT, borderwidth=0)
-        style.map("TButton", background=[("active", "#293951"), ("disabled", "#202a39")], foreground=[("disabled", MUTED)])
-        style.configure("Accent.TButton", background=ACCENT, foreground="#171321", font=(FONT, 9, "bold"), padding=(14, 9))
-        style.map("Accent.TButton", background=[("active", "#91bdff"), ("disabled", "#465a76")])
-        style.configure("Stop.TButton", background="#302631", foreground="#ffb3bf", font=(FONT, 9, "bold"), padding=(12, 8))
-        style.map("Stop.TButton", background=[("active", "#663244"), ("disabled", PANEL_ALT)], foreground=[("disabled", MUTED)])
-        style.configure("Nav.TButton", background=PANEL, foreground=MUTED, anchor="w", padding=(12, 10), font=(FONT, 9))
+        style.configure("TLabel", background=BG, foreground=TEXT, font=(FONT, 10))
+        style.configure("Card.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 10))
+        style.configure("Muted.Card.TLabel", background=PANEL, foreground=MUTED, font=(FONT, 9))
+        style.configure("Title.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 14, "bold"))
+        style.configure("Sub.TLabel", background=PANEL, foreground=MUTED, font=(FONT, 9))
+        style.configure("PageTitle.TLabel", background=BG, foreground=TEXT, font=(FONT, 20, "bold"))
+        style.configure("PageSub.TLabel", background=BG, foreground=MUTED, font=(FONT, 10))
+        style.configure("Section.TLabel", background=PANEL, foreground=TEXT, font=(FONT, 12, "bold"))
+        style.configure("Status.TLabel", background=PANEL, foreground=GREEN, font=(FONT, 10, "bold"))
+        style.configure("TButton", font=(FONT, 10), padding=(12, 9), background=PANEL_ALT, foreground=TEXT, borderwidth=0)
+        style.map("TButton", background=[("active", "#20372f"), ("disabled", "#17211e")], foreground=[("disabled", MUTED)])
+        style.configure("Accent.TButton", background=ACCENT, foreground=BG, font=(FONT, 10, "bold"), padding=(15, 10))
+        style.map("Accent.TButton", background=[("active", "#68e3bb"), ("disabled", "#29463b")])
+        style.configure("Stop.TButton", background="#33231f", foreground="#ffb39e", font=(FONT, 10, "bold"), padding=(13, 9))
+        style.map("Stop.TButton", background=[("active", "#49302a"), ("disabled", PANEL_ALT)], foreground=[("disabled", MUTED)])
+        style.configure("Nav.TButton", background=PANEL, foreground=MUTED, anchor="w", padding=(12, 11), font=(FONT, 10))
         style.map("Nav.TButton", background=[("active", PANEL_ALT)], foreground=[("active", TEXT)])
-        style.configure("NavActive.TButton", background=PANEL_ALT, foreground=ACCENT, anchor="w", padding=(12, 10), font=(FONT, 9, "bold"))
+        style.configure("NavActive.TButton", background=PANEL_ALT, foreground=ACCENT, anchor="w", padding=(12, 11), font=(FONT, 10, "bold"))
         style.map("NavActive.TButton", background=[("active", PANEL_ALT)])
-        style.configure("Mode.TRadiobutton", background=PANEL, foreground=TEXT, padding=(8, 8), font=(FONT, 9))
+        style.configure("Mode.TRadiobutton", background=PANEL, foreground=TEXT, padding=(8, 8), font=(FONT, 10))
         style.map("Mode.TRadiobutton", background=[("selected", PANEL_ALT), ("active", PANEL_ALT)], foreground=[("selected", ACCENT), ("disabled", MUTED)])
-        style.configure("TEntry", fieldbackground="#0f1724", foreground=TEXT, insertcolor=TEXT, bordercolor="#35445a", padding=6)
-        style.configure("TSpinbox", fieldbackground="#0f1724", foreground=TEXT, arrowcolor=TEXT, bordercolor="#35445a", padding=5)
-        style.configure("Horizontal.TScale", background=PANEL, troughcolor="#29364a")
-        style.configure("TSeparator", background="#263449")
+        style.configure("TEntry", fieldbackground="#0b1713", foreground=TEXT, insertcolor=TEXT, bordercolor=BORDER, padding=7, font=(FONT, 10))
+        style.configure("TSpinbox", fieldbackground="#0b1713", foreground=TEXT, arrowcolor=TEXT, bordercolor=BORDER, padding=6, font=(FONT, 10))
+        style.configure("TCombobox", fieldbackground="#0b1713", background=PANEL_ALT, foreground=TEXT,
+                        arrowcolor=ACCENT, bordercolor=BORDER, padding=7, font=(FONT, 10))
+        style.map("TCombobox", fieldbackground=[("readonly", "#0b1713")],
+                  foreground=[("readonly", TEXT)], selectbackground=[("readonly", PANEL_ALT)],
+                  selectforeground=[("readonly", TEXT)])
+        style.configure("Horizontal.TScale", background=PANEL, troughcolor="#263b33")
+        style.configure("TSeparator", background=BORDER)
 
     def _use_mockup_window_size(self):
         # GNOME can restore the previous maximized state for Tk windows.
@@ -341,6 +346,9 @@ class App(tk.Tk):
 
         header = ttk.Frame(shell, style="Header.TFrame", padding=(20, 13))
         header.pack(fill="x", padx=1, pady=(1, 0))
+        brand_mark = tk.Label(header, text="G1", bg=ACCENT, fg=BG, font=(FONT, 10, "bold"),
+                              width=4, height=2, relief="flat")
+        brand_mark.pack(side="left", padx=(0, 11))
         title_box = ttk.Frame(header, style="Header.TFrame")
         title_box.pack(side="left")
         ttk.Label(title_box, text="Mitsuko G1 / Light Sync", style="Title.TLabel").pack(anchor="w")
@@ -348,7 +356,7 @@ class App(tk.Tk):
         status_box = ttk.Frame(header, style="Header.TFrame")
         status_box.pack(side="left", fill="x", expand=True, padx=(28, 12))
         self.status_dot = tk.Canvas(status_box, width=12, height=12, bg=PANEL, highlightthickness=0)
-        self.status_dot.create_oval(2, 2, 10, 10, fill="#718096", outline="")
+        self.status_dot.create_oval(2, 2, 10, 10, fill=MUTED, outline="")
         self.status_dot.pack(side="left", padx=(0, 9))
         status_labels = ttk.Frame(status_box, style="Header.TFrame")
         status_labels.pack(side="left", fill="x", expand=True)
@@ -458,8 +466,8 @@ class App(tk.Tk):
             dot = tk.Canvas(row, width=12, height=12, bg=PANEL_ALT, highlightthickness=0)
             dot.create_oval(1, 1, 11, 11, fill=color, outline="")
             dot.pack(side="left", padx=(0, 8))
-            tk.Label(row, text=label, bg=PANEL_ALT, fg=TEXT, font=(FONT, 7)).pack(side="left")
-            tk.Label(row, text=detail, bg=PANEL_ALT, fg=MUTED, font=(FONT, 7)).pack(side="right")
+            tk.Label(row, text=label, bg=PANEL_ALT, fg=TEXT, font=(FONT, 9)).pack(side="left")
+            tk.Label(row, text=detail, bg=PANEL_ALT, fg=MUTED, font=(FONT, 9)).pack(side="right")
 
         controls_column = ttk.Frame(columns, style="Root.TFrame")
         controls_column.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
@@ -553,10 +561,10 @@ class App(tk.Tk):
         canvas.create_line(left + 2, bottom, right - 2, bottom, fill=bass, width=7, capstyle=tk.ROUND)
         canvas.create_line(left, top + 2, left, bottom - 2, fill=voice, width=7, capstyle=tk.ROUND)
         canvas.create_line(right, top + 2, right, bottom - 2, fill="#8cbcff" if "voice" in active else muted, width=7, capstyle=tk.ROUND)
-        canvas.create_text(width / 2, top - 19, text="TREBLE  ·  TOP", fill=treble, font=(FONT, 8, "bold"))
-        canvas.create_text(width / 2, bottom + 20, text="BASS  ·  BOTTOM", fill=bass, font=(FONT, 8, "bold"))
-        canvas.create_text(width / 2, height / 2 - 6, text=mode.title(), fill=TEXT, font=(FONT, 9, "bold"))
-        canvas.create_text(width / 2, height / 2 + 15, text="Music reactive", fill=MUTED, font=(FONT, 7))
+        canvas.create_text(width / 2, top - 19, text="TREBLE  ·  TOP", fill=treble, font=(FONT, 9, "bold"))
+        canvas.create_text(width / 2, bottom + 20, text="BASS  ·  BOTTOM", fill=bass, font=(FONT, 9, "bold"))
+        canvas.create_text(width / 2, height / 2 - 6, text=mode.title(), fill=TEXT, font=(FONT, 10, "bold"))
+        canvas.create_text(width / 2, height / 2 + 15, text="Music reactive", fill=MUTED, font=(FONT, 9))
 
     def _select_music_mode(self, value):
         self.audio_mode.set(value)
@@ -572,7 +580,32 @@ class App(tk.Tk):
         canvas = getattr(self, "music_color_swatch", None)
         if canvas is not None and canvas.winfo_exists():
             canvas.delete("all")
-            canvas.create_oval(2, 2, 32, 32, fill=self.color, outline=BORDER, width=1)
+            canvas.create_oval(2, 2, 32, 32, fill=self.color, outline=ACCENT, width=2)
+
+    def _refresh_palette_swatches(self):
+        for swatch in getattr(self, "palette_swatches", ()):
+            if not swatch.winfo_exists():
+                continue
+            swatch.delete("all")
+            selected = swatch.palette_color.lower() == self.color.lower()
+            swatch.create_oval(4, 4, 36, 36, fill=swatch.palette_color,
+                               outline=ACCENT if selected else BORDER,
+                               width=3 if selected else 1)
+
+    def _set_color_preview(self, color):
+        self.color = color
+        color_button = getattr(self, "color_btn", None)
+        if color_button is not None and color_button.winfo_exists():
+            color_button.configure(bg=color, fg=BG, activebackground=color, activeforeground=BG)
+        color_value = getattr(self, "color_value", None)
+        if color_value is not None:
+            color_value.set(color.upper())
+        self._update_music_color_swatch()
+        self._refresh_palette_swatches()
+
+    def select_palette_color(self, color):
+        self._set_color_preview(color)
+        self.set_color()
 
     def _build_screen_page(self, page):
         self._page_heading(page, "Screen sync", "Map monitor-edge colors to the LED strip.")
@@ -653,12 +686,27 @@ class App(tk.Tk):
         color_card.pack(fill="x", pady=(0, 12))
         ttk.Label(color_card, text="COLOR", style="Muted.Card.TLabel").pack(anchor="w")
         ttk.Label(color_card, text="Choose a palette anchor or apply a solid color", style="Section.TLabel").pack(anchor="w", pady=(4, 13))
+        swatches = ttk.Frame(color_card, style="Card.TFrame")
+        swatches.pack(fill="x", pady=(0, 12))
+        self.palette_swatches = []
+        for name, color in (("Mint", "#46d6aa"), ("Blue", "#7ea7ff"),
+                            ("Violet", "#c49bff"), ("Coral", "#ff8a70"),
+                            ("Amber", "#ffd36d"), ("Soft white", "#f4f4f0")):
+            swatch = tk.Canvas(swatches, width=40, height=40, bg=PANEL, highlightthickness=0,
+                               cursor="hand2")
+            swatch.pack(side="left", padx=(0, 8))
+            swatch.bind("<Button-1>", lambda _event, value=color: self.select_palette_color(value))
+            swatch.bind("<Enter>", lambda _event, widget=swatch: widget.configure(cursor="hand2"))
+            swatch.palette_color = color
+            self.palette_swatches.append(swatch)
+            self.manual_widgets.append(swatch)
+        self._refresh_palette_swatches()
         color_row = ttk.Frame(color_card, style="Card.TFrame")
         color_row.pack(fill="x")
         self.color_btn = tk.Button(color_row, text="Choose color", command=self.choose_color,
-                                   bg=self.color, fg="#08111c", activebackground=self.color,
-                                   activeforeground="#08111c", relief="flat", bd=0,
-                                   font=(FONT, 9, "bold"), padx=14, pady=9)
+                                   bg=PANEL_ALT, fg=TEXT, activebackground="#20372f",
+                                   activeforeground=TEXT, relief="flat", bd=0,
+                                   font=(FONT, 10, "bold"), padx=14, pady=10)
         self.color_btn.pack(side="left")
         self.manual_widgets.append(self.color_btn)
         self.color_value = tk.StringVar(value=self.color.upper())
@@ -839,7 +887,7 @@ class App(tk.Tk):
             self.external_pid = None
             self.active_mode = ""
             self.status.set("Live mode stopped")
-            self.status_dot.itemconfigure(1, fill="#718096")
+            self.status_dot.itemconfigure(1, fill=MUTED)
             self._external_mode_stopped()
         self.after(120, self._poll)
 
@@ -1046,9 +1094,7 @@ class App(tk.Tk):
             self.audio_mode.set(values.get("audio_mode", self.audio_mode.get()))
             color = values.get("color")
             if isinstance(color, list) and len(color) == 3:
-                self.color = "#" + "".join(f"{max(0, min(255, int(channel))):02x}" for channel in color)
-                self.color_btn.configure(bg=self.color, activebackground=self.color)
-                self.color_value.set(self.color.upper())
+                self._set_color_preview("#" + "".join(f"{max(0, min(255, int(channel))):02x}" for channel in color))
             self._refresh_music_modes()
             self._update_music_color_swatch()
             self._save(self._settings())
@@ -1226,10 +1272,7 @@ class App(tk.Tk):
     def choose_color(self):
         selected = colorchooser.askcolor(self.color, parent=self, title="Choose LED color")[1]
         if selected:
-            self.color = selected
-            self.color_btn.configure(bg=selected, activebackground=selected)
-            self.color_value.set(selected.upper())
-            self._update_music_color_swatch()
+            self._set_color_preview(selected)
 
     def set_color(self):
         r, g, b = (int(self.color[i:i + 2], 16) for i in (1, 3, 5))
