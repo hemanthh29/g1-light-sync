@@ -96,6 +96,20 @@ public class MainActivity extends Activity {
     private void buildUi() {
         ScrollView scroll = new ScrollView(this); scroll.setFillViewport(true); scroll.setBackgroundColor(BG);
         LinearLayout root = column(); root.setPadding(dp(20), dp(14), dp(20), dp(28)); scroll.addView(root);
+        // Android 15 enforces edge-to-edge for apps targeting API 35. Keep the
+        // app's own content clear of the status and navigation bars while
+        // retaining the existing edge-to-edge background color.
+        if (Build.VERSION.SDK_INT >= 35) {
+            scroll.setOnApplyWindowInsetsListener((view, insets) -> {
+                root.setPadding(
+                    dp(20) + insets.getSystemWindowInsetLeft(),
+                    dp(14) + insets.getSystemWindowInsetTop(),
+                    dp(20) + insets.getSystemWindowInsetRight(),
+                    dp(28) + insets.getSystemWindowInsetBottom()
+                );
+                return insets;
+            });
+        }
 
         LinearLayout top = row();
         TextView mark = label("G1",15,BG,true); mark.setGravity(Gravity.CENTER); mark.setBackground(shape(GREEN,12)); top.addView(mark,lp(44,44));

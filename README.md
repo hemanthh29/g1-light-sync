@@ -9,7 +9,7 @@ This public repository contains the source projects for all three platforms. Ins
 | Platform | Latest build | Download | Checksum |
 | --- | --- | --- | --- |
 | Linux | Debian package `1.0.10-39` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-39) | `SHA256SUMS.txt` attached to the release |
-| Android | APK `1.8` (version code 9) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8) | `SHA256SUMS.txt` attached to the release |
+| Android | APK `1.8.1` (version code 10) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.1) | `SHA256SUMS.txt` attached to the release |
 | iOS | IPA `1.4` (build 7) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build7) | `SHA256SUMS.txt` attached to the release |
 
 The [full release history](https://github.com/hemanthh29/g1-light-sync/releases) keeps older builds. Release tags identify their platform: `deb-…` for Linux, `android-…` for Android, and `ios-…` for iOS.
@@ -44,8 +44,9 @@ The Android app controls the strip through the Linux host. It provides:
 - Preset colors, brightness, and a single Turn LEDs off control in the Now Playing card.
 - The built-in Dynamic and Pickup presets, five app-generated effects, and saved laptop profiles.
 - Automatic laptop discovery and pairing over the same Wi-Fi, with no IP address entry; it can also use the USB debugging connection when configured. Lighting mode and steady-state status refresh automatically, and Wi-Fi reconnection retries continue if the link briefly drops.
+- On Android 15 and later, the screen insets keep the app header and controls clear of the status and navigation bars.
 
-**Install:** download the APK from the [Android release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8). On the laptop, turn on the relay in **Phone Wi-Fi setup**. Keep both devices on the same local network, choose the laptop found by the app, and pair once with the code shown by the laptop.
+**Install:** download the APK from the [Android release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.1). On the laptop, turn on the relay in **Phone Wi-Fi setup**. Keep both devices on the same local network, choose the laptop found by the app, and pair once with the code shown by the laptop.
 
 ### iOS companion app
 
@@ -117,7 +118,7 @@ The iOS project requires Xcode to build locally. Since the IPA is unsigned, the 
 Publish each platform independently and retain its older version tags:
 
 - Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-39`)
-- Android: `android-<version>` (for example, `android-1.8`)
+- Android: `android-<version>` (for example, `android-1.8.1`)
 - iOS: `ios-<version>-build<build>` (for example, `ios-1.4-build7`)
 
 Attach only that platform’s installable file and its `SHA256SUMS.txt` checksum to each release. Keep the release title explicit about platform and version so the newest Linux, Android, and iOS builds are easy to distinguish from historical tags.
