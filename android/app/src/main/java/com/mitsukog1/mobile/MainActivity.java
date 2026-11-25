@@ -116,10 +116,8 @@ public class MainActivity extends Activity {
         hero.addView(label("NOW PLAYING",10,GREEN,true)); gap(hero,8);
         mode = label("Ready to sync",22,TEXT,true); hero.addView(mode); gap(hero,5);
         hero.addView(label("Start a mode below. Your laptop handles the LEDs.",12,MUTED,false));
-        LinearLayout heroButtons = row(); heroButtons.setPadding(0,dp(16),0,0);
-        Button stop = button("Stop", true); heroButtons.addView(stop,lp(98,44)); stop.setOnClickListener(v->send("stop",null));
-        Button off = button("Lights off", false); LinearLayout.LayoutParams offLp=lp(112,44); offLp.leftMargin=dp(9); heroButtons.addView(off,offLp); off.setOnClickListener(v->send("off",null));
-        hero.addView(heroButtons); root.addView(hero); gap(root,22);
+        Button turnOff = button("Turn LEDs off", true); LinearLayout.LayoutParams offLp=lp(-1,44); offLp.topMargin=dp(16);
+        hero.addView(turnOff,offLp); turnOff.setOnClickListener(v->send("off",null)); root.addView(hero); gap(root,22);
 
         section(root,"QUICK MODES","Pick the mood for the room.");
         LinearLayout modes = row();

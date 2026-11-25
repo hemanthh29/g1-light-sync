@@ -130,11 +130,8 @@ struct ContentView: View {
             Text("NOW PLAYING").font(.caption2.weight(.bold)).tracking(1.5).foregroundStyle(Palette.green)
             Text(modeName).font(.system(size: 23, weight: .bold, design: .rounded)).foregroundStyle(Palette.text)
             Text("Your laptop handles the LEDs.").font(.caption).foregroundStyle(Palette.muted)
-            HStack(spacing: 9) {
-                actionButton("Stop", filled: true) { Task { await model.send("stop") } }
-                actionButton("Lights off", filled: false) { Task { await model.send("off") } }
-            }
-            .padding(.top, 7)
+            actionButton("Turn LEDs off", filled: true) { Task { await model.send("off") } }
+                .padding(.top, 7)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
