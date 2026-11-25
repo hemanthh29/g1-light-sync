@@ -554,9 +554,11 @@ def run_animation(g, name, fps, base_color):
         time.sleep(max(0.0, interval - (time.monotonic() - frame_start)))
 
 
-def run_music(g, fps, sensitivity, mode, base_color, edge_counts):
+def run_music(g, fps, sensitivity, mode, base_color, edge_counts, zone_colors=None):
     """Capture PipeWire playback and render a responsive, palette-based music mode."""
     import numpy as np
+
+    zone_colors = zone_colors or {"bass": base_color, "voice": base_color, "treble": base_color}
 
     # Keep the proven 0x86 section transport for live audio frames. Combined
     # uses a handful of color regions, which fit in a single small report.
@@ -621,14 +623,21 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts):
         previous_bass_level = 0.0
         bass_hit = 0.0
         treble_hit = 0.0
-        palette_hue = colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
+        zone_hsv = {name: colorsys.rgb_to_hsv(*(channel / 255 for channel in zone_colors[name]))
+                    for name in ("bass", "voice", "treble")}
         last_report = time.monotonic()
         frequencies = np.fft.rfftfreq(window_size, 1 / rate)
         bands = ((35, 150), (150, 400), (400, 3400), (3400, 10000))
         masks = [(frequencies >= low) & (frequencies < high) for low, high in bands]
-        voice_mask = (frequencies >= 250) & (frequencies < 3400)
         high_mask = masks[3]
         window = np.hanning(window_size).astype(np.float32)
+
+        def rgb_for_zone(name, value):
+            hue, saturation, base_value = zone_hsv[name]
+            value = min(1.0, max(0.0, value * gate * base_value))
+            rgb = colorsys.hsv_to_rgb(hue, saturation, value)
+            return tuple(round(channel * 255) for channel in rgb)
+
         while True:
             frame_start = time.monotonic()
             try:
@@ -668,57 +677,34 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts):
 
             rms = float(np.sqrt(np.mean(audio_history * audio_history)))
             gate = min(1.0, max(0.0, (rms - 0.002) / 0.025))
-            centroid = float(np.sum(frequencies * spectrum) / max(1e-9, float(spectrum.sum())))
-            centroid_color = min(1.0, max(0.0, (math.log2(max(80.0, centroid) / 80.0)) / math.log2(10000.0 / 80.0)))
-            voice_centroid = float(np.sum(frequencies[voice_mask] * spectrum[voice_mask]) /
-                                   max(1e-9, float(spectrum[voice_mask].sum())))
-            voice_color = min(1.0, max(0.0, (voice_centroid - 250.0) / (3400.0 - 250.0)))
-            target_hue = (colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
-                          + (centroid_color - 0.5) * 0.20 + (voice_color - 0.5) * 0.06) % 1.0
-            hue_delta = (target_hue - palette_hue + 0.5) % 1.0 - 0.5
-            palette_hue = (palette_hue + hue_delta * 0.035) % 1.0
 
             if time.monotonic() - last_report >= 1.0:
                 print("Audio levels · bass {:.2f} · low-mid {:.2f} · voice-range {:.2f} · treble {:.2f}".format(*levels), flush=True)
                 last_report = time.monotonic()
 
             if mode == "bass":
-                hue = (palette_hue - 0.035) % 1.0
                 value = 0.025 + 0.82 * float(levels[0]) + 0.40 * bass_hit
-                saturation = 0.90
+                color = rgb_for_zone("bass", value)
             elif mode == "treble":
-                hue = (palette_hue + 0.10) % 1.0
                 value = 0.02 + 0.65 * float(levels[3]) + 0.62 * treble_hit
-                saturation = 0.90 - 0.55 * treble_hit
+                color = rgb_for_zone("treble", value)
             elif mode == "voice":
-                hue = (palette_hue + (voice_color - 0.5) * 0.14) % 1.0
                 value = 0.025 + 0.92 * float(levels[2])
-                saturation = 0.78
+                color = rgb_for_zone("voice", value)
             else:
                 # Combined is spatially mapped around the monitor perimeter:
                 # bass owns the bottom, voice/mids the two sides, treble the
                 # top. A kick brightens the whole frame, then decays smoothly.
                 # This preserves the information that was lost when all 94
                 # LEDs were collapsed to one HSV color.
-                def rgb_at(hue, sat, val):
-                    val = min(1.0, max(0.0, val * gate))
-                    rgb = colorsys.hsv_to_rgb(hue % 1.0, min(1.0, max(0.0, sat)), val)
-                    return tuple(round(channel * 255) for channel in rgb)
-
                 bass = float(levels[0])
                 low_mid = float(levels[1])
                 voice = float(levels[2])
                 treble = float(levels[3])
                 shared_beat = bass_hit
-                base_hue = colorsys.rgb_to_hsv(*(c / 255 for c in base_color))[0]
-                bass_color = rgb_at(base_hue - 0.035, 0.96,
-                                    0.018 + 0.72 * bass + 0.72 * shared_beat)
-                voice_hue = base_hue + (voice_color - 0.5) * 0.12 + (centroid_color - 0.5) * 0.035
-                voice_color_rgb = rgb_at(voice_hue, 0.82,
-                                         0.018 + 0.62 * voice + 0.24 * low_mid + 0.18 * shared_beat)
-                treble_color = rgb_at(base_hue + 0.13 + (centroid_color - 0.5) * 0.04,
-                                      0.86 - 0.40 * treble_hit,
-                                      0.015 + 0.62 * treble + 0.58 * treble_hit + 0.12 * shared_beat)
+                bass_color = rgb_for_zone("bass", 0.018 + 0.72 * bass + 0.72 * shared_beat)
+                voice_color_rgb = rgb_for_zone("voice", 0.018 + 0.62 * voice + 0.24 * low_mid + 0.18 * shared_beat)
+                treble_color = rgb_for_zone("treble", 0.015 + 0.62 * treble + 0.58 * treble_hit + 0.12 * shared_beat)
                 sides_rgb = voice_color_rgb
                 colors = ([bass_color] * edge_counts["bottom"]
                           + [sides_rgb] * edge_counts["left"]
@@ -727,9 +713,6 @@ def run_music(g, fps, sensitivity, mode, base_color, edge_counts):
                 send_frame_resilient(g, colors)
                 time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
                 continue
-            value = min(1.0, max(0.0, value * gate))
-            rgb = colorsys.hsv_to_rgb(hue, min(1.0, max(0.0, saturation)), value)
-            color = tuple(round(channel * 255) for channel in rgb)
             send_frame_resilient(g, [color] * max(1, g.lamps))
             time.sleep(max(0.0, 1.0 / max(1, fps) - (time.monotonic() - frame_start)))
     finally:
@@ -790,6 +773,9 @@ def main():
     mu.add_argument("--sensitivity", type=float, default=1.5, help="audio response gain, 0.2–5")
     mu.add_argument("--mode", choices=["combined", "bass", "treble", "voice"], default="combined")
     mu.add_argument("--color", default="4c8dff", help="palette anchor color in hex RGB")
+    mu.add_argument("--bass-color", default=None, help="custom bass zone color in hex RGB")
+    mu.add_argument("--voice-color", default=None, help="custom voice/mids zone color in hex RGB")
+    mu.add_argument("--treble-color", default=None, help="custom treble zone color in hex RGB")
     mu.add_argument("--counts", default="bottom=30,left=17,top=30,right=17",
                     help="perimeter LED counts in strip order, used by Combined mode")
     a = ap.parse_args()
@@ -900,14 +886,21 @@ def main():
             if len(color) != 6:
                 raise ValueError
             base_color = tuple(int(color[i:i + 2], 16) for i in (0, 2, 4))
+            zone_colors = {}
+            for zone in ("bass", "voice", "treble"):
+                raw_color = getattr(a, f"{zone}_color")
+                raw_color = raw_color.lstrip("#") if raw_color is not None else color
+                if len(raw_color) != 6:
+                    raise ValueError
+                zone_colors[zone] = tuple(int(raw_color[i:i + 2], 16) for i in (0, 2, 4))
             edge_counts = parse_edge_counts(a.counts)
         except ValueError:
-            sys.exit("--color must be a six-digit hex RGB value and --counts must use bottom,left,top,right.")
+            sys.exit("Music colors must be six-digit hex RGB values and --counts must use bottom,left,top,right.")
         cfg = load_config()
         cfg.pop("effect", None)
         save_config(cfg)
         try:
-            run_music(g, a.fps, a.sensitivity, a.mode, base_color, edge_counts)
+            run_music(g, a.fps, a.sensitivity, a.mode, base_color, edge_counts, zone_colors)
         except KeyboardInterrupt:
             turn_off_if_connected(g)
         except RuntimeError as exc:

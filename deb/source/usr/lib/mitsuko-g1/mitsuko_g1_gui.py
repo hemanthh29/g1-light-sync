@@ -653,6 +653,15 @@ class App(tk.Tk):
         self.depth_value = tk.StringVar(value=f"{self.depth.get():.2f}")
         self.audio_sensitivity = tk.DoubleVar(value=float(settings.get("audio_sensitivity", 1.5)))
         self.audio_sensitivity_value = tk.StringVar(value=f"{self.audio_sensitivity.get():.1f}×")
+        saved_zone_colors = settings.get("music_zone_colors", {})
+        if not isinstance(saved_zone_colors, dict):
+            saved_zone_colors = {}
+        self.music_zone_colors = {}
+        for zone, default in (("bass", "#f0b15e"), ("voice", "#a892ef"), ("treble", "#76b9f4")):
+            value = saved_zone_colors.get(zone, default)
+            if not isinstance(value, str) or not re.fullmatch(r"#?[0-9a-fA-F]{6}", value):
+                value = default
+            self.music_zone_colors[zone] = tk.StringVar(value="#" + value.lstrip("#").upper())
         self.notification_flash_enabled = tk.BooleanVar(value=bool(settings.get("notification_flash", False)))
         self.notification_switch_text = tk.StringVar(
             value="On" if self.notification_flash_enabled.get() else "Off")
@@ -1089,14 +1098,16 @@ class App(tk.Tk):
         self.preview_canvas = tk.Canvas(preview, width=330, height=220, bg=PANEL, highlightthickness=0)
         self.preview_canvas.pack(fill="both", expand=True, pady=(6, 4))
         self.preview_canvas.bind("<Configure>", self._update_perimeter_preview)
-        for color, label, detail in (("#ffbd66", "Bass · bottom", "Beat pulse"),
-                                     ("#c99be8", "Voice / mids · sides", "Color body"),
-                                     ("#9580ff", "Treble · top", "Transient accents")):
+        self.music_zone_preview_swatches = {}
+        for zone, label, detail in (("bass", "Bass · bottom", "Beat pulse"),
+                                    ("voice", "Voice / mids · sides", "Color body"),
+                                    ("treble", "Treble · top", "Transient accents")):
             row = tk.Frame(preview, bg=PANEL_ALT, padx=12, pady=8)
             row.pack(fill="x", pady=(6, 0))
             dot = tk.Canvas(row, width=12, height=12, bg=PANEL_ALT, highlightthickness=0)
-            dot.create_oval(1, 1, 11, 11, fill=color, outline="")
+            dot.create_oval(1, 1, 11, 11, fill=self.music_zone_colors[zone].get(), outline="")
             dot.pack(side="left", padx=(0, 8))
+            self.music_zone_preview_swatches[zone] = dot
             tk.Label(row, text=label, bg=PANEL_ALT, fg=TEXT, font=(FONT, 9)).pack(side="left")
             tk.Label(row, text=detail, bg=PANEL_ALT, fg=MUTED, font=(FONT, 9)).pack(side="right")
 
@@ -1134,16 +1145,23 @@ class App(tk.Tk):
         self.manual_widgets.append(self.music_btn)
         color_card = self._card(controls_column, padding=14)
         color_card.pack(fill="x", pady=(GAP, 0))
-        ttk.Label(color_card, text="LED COLOR", style="Muted.Card.TLabel").pack(anchor="w")
-        color_row = ttk.Frame(color_card, style="Card.TFrame")
-        color_row.pack(fill="x", pady=(10, 0))
-        ttk.Label(color_row, text="Palette anchor", style="Card.TLabel").pack(side="left")
-        self.music_color_swatch = tk.Canvas(color_row, width=34, height=34, bg=PANEL,
-                                            highlightthickness=0, cursor="hand2")
-        self.music_color_swatch.pack(side="right")
-        self.music_color_swatch.bind("<Button-1>", lambda _e: self.choose_color(apply_to_strip=False))
-        self.manual_widgets.append(self.music_color_swatch)
-        self._update_music_color_swatch()
+        ttk.Label(color_card, text="MUSIC ZONE COLORS", style="Muted.Card.TLabel").pack(anchor="w")
+        self.music_zone_color_rows = {}
+        for zone, label in (("bass", "Bass · bottom"), ("voice", "Voice / mids · sides"),
+                            ("treble", "Treble · top")):
+            zone_row = ttk.Frame(color_card, style="Card.TFrame")
+            zone_row.pack(fill="x", pady=3)
+            swatch = tk.Canvas(zone_row, width=26, height=26, bg=PANEL, highlightthickness=0,
+                               cursor="hand2")
+            swatch.pack(side="left", padx=(0, 8))
+            swatch.bind("<Button-1>", lambda _e, name=zone: self._choose_music_zone_color(name))
+            ttk.Label(zone_row, text=label, style="Card.TLabel").pack(side="left", fill="x", expand=True)
+            button = RoundedButton(zone_row, text="Choose…", style="Mode.TButton",
+                                   command=lambda name=zone: self._choose_music_zone_color(name))
+            button.pack(side="right")
+            self.music_zone_color_rows[zone] = (swatch, button)
+            self.manual_widgets.extend((swatch, button))
+            self._update_music_zone_swatch(zone)
         bright_header = ttk.Frame(color_card, style="Card.TFrame")
         bright_header.pack(fill="x", pady=(14, 0))
         ttk.Label(bright_header, text="Brightness", style="Muted.Card.TLabel").pack(side="left")
@@ -1188,14 +1206,14 @@ class App(tk.Tk):
         active = {"combined": {"bass", "voice", "treble"}, "bass": {"bass"},
                   "voice": {"voice"}, "treble": {"treble"}}.get(mode, {"bass", "voice", "treble"})
         muted = "#354151"
-        bass = "#f0b15e" if "bass" in active else muted
-        voice = "#a892ef" if "voice" in active else muted
-        treble = "#76b9f4" if "treble" in active else muted
+        bass = self.music_zone_colors["bass"].get() if "bass" in active else muted
+        voice = self.music_zone_colors["voice"].get() if "voice" in active else muted
+        treble = self.music_zone_colors["treble"].get() if "treble" in active else muted
         canvas.create_rectangle(left, top, right, bottom, fill=BG, outline=BORDER, width=2)
         canvas.create_line(left + 2, top, right - 2, top, fill=treble, width=7, capstyle=tk.ROUND)
         canvas.create_line(left + 2, bottom, right - 2, bottom, fill=bass, width=7, capstyle=tk.ROUND)
         canvas.create_line(left, top + 2, left, bottom - 2, fill=voice, width=7, capstyle=tk.ROUND)
-        canvas.create_line(right, top + 2, right, bottom - 2, fill="#8cbcff" if "voice" in active else muted, width=7, capstyle=tk.ROUND)
+        canvas.create_line(right, top + 2, right, bottom - 2, fill=voice, width=7, capstyle=tk.ROUND)
         canvas.create_text(width / 2, top - 19, text="TREBLE  ·  TOP", fill=treble, font=(FONT, 9, "bold"))
         canvas.create_text(width / 2, bottom + 20, text="BASS  ·  BOTTOM", fill=bass, font=(FONT, 9, "bold"))
         canvas.create_text(width / 2, height / 2 - 6, text=mode.title(), fill=TEXT, font=(FONT, 10, "bold"))
@@ -1211,11 +1229,39 @@ class App(tk.Tk):
         for button in getattr(self, "music_mode_buttons", ()):
             button.configure(style="ModeActive.TButton" if button.mode_value == self.audio_mode.get() else "Mode.TButton")
 
-    def _update_music_color_swatch(self):
-        canvas = getattr(self, "music_color_swatch", None)
-        if canvas is not None and canvas.winfo_exists():
+    def _update_music_zone_swatch(self, zone):
+        row = getattr(self, "music_zone_color_rows", {}).get(zone)
+        if row:
+            canvas = row[0]
             canvas.delete("all")
-            canvas.create_oval(2, 2, 32, 32, fill=self.color, outline=ACCENT, width=2)
+            canvas.create_oval(2, 2, 24, 24, fill=self.music_zone_colors[zone].get(), outline=ACCENT, width=1)
+        preview = getattr(self, "music_zone_preview_swatches", {}).get(zone)
+        if preview is not None and preview.winfo_exists():
+            preview.itemconfigure(1, fill=self.music_zone_colors[zone].get())
+        self._update_perimeter_preview()
+
+    def _set_music_zone_color(self, zone, color):
+        color = "#" + color.lstrip("#").upper()
+        self.music_zone_colors[zone].set(color)
+        try:
+            settings = json.loads(GUI_CONFIG.read_text()) if GUI_CONFIG.exists() else {}
+        except (OSError, ValueError):
+            settings = {}
+        settings.setdefault("music_zone_colors", {})
+        if not isinstance(settings["music_zone_colors"], dict):
+            settings["music_zone_colors"] = {}
+        settings["music_zone_colors"][zone] = color
+        GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+        self._update_music_zone_swatch(zone)
+
+    def _choose_music_zone_color(self, zone):
+        label = {"bass": "Bass", "voice": "Voice / mids", "treble": "Treble"}[zone]
+        self.choose_color(
+            initial_color=self.music_zone_colors[zone].get(),
+            action_label="Use for this zone",
+            subtitle=f"Choose the color used by the {label.lower()} zone during music sync.",
+            on_select=lambda color: self._set_music_zone_color(zone, color),
+        )
 
     def _refresh_palette_swatches(self):
         for swatch in getattr(self, "palette_swatches", ()):
@@ -1951,13 +1997,16 @@ class App(tk.Tk):
             settings["audio_sensitivity"] = sensitivity
             settings["audio_mode"] = self.audio_mode.get()
             settings["counts"] = counts
+            settings["music_zone_colors"] = {zone: color.get() for zone, color in self.music_zone_colors.items()}
             GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
             color = self.color.lstrip("#")
             count_arg = ",".join(f"{side}={counts[side]}" for side in ("bottom", "left", "top", "right"))
+            zone_args = [option for zone in ("bass", "voice", "treble")
+                         for option in (f"--{zone}-color", self.music_zone_colors[zone].get().lstrip("#"))]
             args = self._base_cmd() + ["--leds", str(leds), "music", "--fps", str(fps),
                                       "--sensitivity", f"{sensitivity:.2f}",
                                       "--mode", self.audio_mode.get(), "--color", color,
-                                      "--counts", count_arg]
+                                      "--counts", count_arg] + zone_args
             self.proc = subprocess.Popen(args, cwd=ROOT, env=self._env(), stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
             threading.Thread(target=self._read_process, args=(self.proc,), daemon=True).start()
@@ -1972,7 +2021,9 @@ class App(tk.Tk):
             self.proc = None
             messagebox.showerror("Could not start music sync", str(exc), parent=self)
 
-    def choose_color(self, apply_to_strip=False):
+    def choose_color(self, apply_to_strip=False, initial_color=None, on_select=None,
+                     action_label=None, subtitle=None):
+        initial_color = initial_color or self.color
         picker = tk.Toplevel(self)
         picker.title("Choose LED color · Mitsuko G1")
         picker.configure(bg=BG)
@@ -1990,9 +2041,9 @@ class App(tk.Tk):
         card = self._card(shell, padding=15)
         card.pack(fill="both", expand=True)
         ttk.Label(card, text="Choose an LED color", style="Title.TLabel").pack(anchor="w")
-        subtitle = ("Choose a shade or hex value; using it applies the color to the strip."
-                    if apply_to_strip else
-                    "Choose the palette anchor for music-reactive lighting.")
+        subtitle = subtitle or ("Choose a shade or hex value; using it applies the color to the strip."
+                                if apply_to_strip else
+                                "Choose the palette anchor for music-reactive lighting.")
         ttk.Label(card, text=subtitle,
                   style="Sub.TLabel").pack(anchor="w", pady=(3, 14))
 
@@ -2010,7 +2061,7 @@ class App(tk.Tk):
         hex_column = ttk.Frame(controls, style="Card.TFrame")
         hex_column.pack(side="left", fill="x", expand=True)
         ttk.Label(hex_column, text="HEX COLOR", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-        hex_var = tk.StringVar(value=self.color.upper())
+        hex_var = tk.StringVar(value=initial_color.upper())
         hex_field = RoundedField(hex_column, ttk.Entry, textvariable=hex_var, width=14,
                                  font=(FONT, 11), justify="center")
         hex_field.pack(anchor="w")
@@ -2028,14 +2079,14 @@ class App(tk.Tk):
             picker.destroy()
 
         RoundedButton(buttons, text="Cancel", command=close_picker).pack(side="right")
-        action_label = "Use this color" if apply_to_strip else "Use as palette anchor"
+        action_label = action_label or ("Use this color" if apply_to_strip else "Use as palette anchor")
         apply_button = RoundedButton(buttons, text=action_label, style="Accent.TButton")
         apply_button.pack(side="right", padx=(0, 9))
 
-        red, green, blue = (int(self.color[i:i + 2], 16) / 255 for i in (1, 3, 5))
+        red, green, blue = (int(initial_color[i:i + 2], 16) / 255 for i in (1, 3, 5))
         hue, saturation, value = colorsys.rgb_to_hsv(red, green, blue)
         state = {"hue": hue, "saturation": saturation, "value": value,
-                 "color": self.color.upper(), "photo": None, "updating_hex": False}
+                 "color": initial_color.upper(), "photo": None, "updating_hex": False}
 
         def render_sv():
             base_width, base_height = sv_width // 2, sv_height // 2
@@ -2122,7 +2173,9 @@ class App(tk.Tk):
                 hex_field.field.focus_set()
                 return
             color = "#" + value_text.lstrip("#").upper()
-            if apply_to_strip:
+            if on_select is not None:
+                on_select(color)
+            elif apply_to_strip:
                 self.select_palette_color(color)
             else:
                 self._set_color_preview(color)
@@ -2143,7 +2196,7 @@ class App(tk.Tk):
         render_sv()
         draw_hue_marker()
         update_selection(update_input=False)
-        draw_preview(self.color)
+        draw_preview(initial_color)
         picker.grab_set()
         hex_field.field.focus_set()
         hex_field.field.selection_range(0, "end")

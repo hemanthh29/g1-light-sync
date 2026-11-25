@@ -48,12 +48,12 @@ This opens the desktop portal permission chooser. Screen sync can then reuse the
 
 Captures the computer's PipeWire playback mix, so no microphone is needed. Select a mode and adjust sensitivity in the GUI:
 
-- **Combined:** bass pulses along the bottom; vocal-range and midrange energy colors the sides; treble accents the top.
+- **Combined:** bass pulses along the bottom; vocal-range and midrange energy colors the sides; treble accents the top. Choose and save a separate color for each zone in the Music zone colors card.
 - **Bass:** reacts mainly to low-frequency energy and beat changes.
 - **Treble:** emphasizes high-frequency energy and transients.
 - **Voice emphasis:** emphasizes energy in a vocal-like frequency range. It does not isolate or identify vocals.
 
-Combined mode uses the current perimeter counts in the GUI. The selected color anchors its palette. Press **Stop live mode** to stop music capture and LED updates.
+Combined mode uses the current perimeter counts in the GUI. Zone colors are saved with the desktop preferences and are used in combined and single-zone modes. Press **Stop live mode** to stop music capture and LED updates.
 
 ### Lighting effects and controls
 
@@ -70,7 +70,7 @@ Per-user settings are stored in:
 ~/.config/mitsuko-g1/
 ```
 
-The GUI saves the LED count, edge counts, screen-sync settings, brightness, music mode, and audio sensitivity there.
+The GUI saves the LED count, edge counts, screen-sync settings, brightness, music mode, audio sensitivity, and each music-zone color there.
 
 ## Command line
 
