@@ -51,15 +51,15 @@ final class CompanionModel: ObservableObject {
     }
 
     func refresh() async {
-        guard let baseURL, let token else { return }
+        guard let baseURL, let savedToken = token else { return }
         do {
-            let status = try await request(path: "/api/status", base: baseURL, bearer: token)
+            let status = try await request(path: "/api/status", base: baseURL, bearer: savedToken)
             connected = true
             mode = status["mode"] as? String ?? "idle"
             message = (status["deviceConnected"] as? Bool == true)
                 ? "Laptop connected · G1 detected"
                 : "Laptop connected · G1 not detected"
-            if let result = try? await request(path: "/api/profiles", base: baseURL, bearer: token) {
+            if let result = try? await request(path: "/api/profiles", base: baseURL, bearer: savedToken) {
                 profiles = result["profiles"] as? [String] ?? []
             }
         } catch CompanionError.unauthorized {
