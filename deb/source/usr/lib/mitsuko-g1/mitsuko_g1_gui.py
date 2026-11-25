@@ -96,7 +96,7 @@ class RoundedButton(tk.Canvas):
             except tk.TclError:
                 parent_style = ""
             surface = PANEL if parent_style in {"Header.TFrame", "Sidebar.TFrame", "Card.TFrame", "CardAlt.TFrame"} else BG
-        super().__init__(parent, width=width, height=48, bg=kwargs.pop("bg", surface),
+        super().__init__(parent, width=width, height=46, bg=kwargs.pop("bg", surface),
                          highlightthickness=0, bd=0, cursor="hand2")
         self.font = font
         self.bind("<Configure>", lambda _event: self._draw())
@@ -153,12 +153,12 @@ class RoundedButton(tk.Canvas):
         elif self.variant == "Mode.TButton":
             fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         elif self.variant == "Nav.TButton":
-            fill, fg = ("#20372f" if self._hovered else PANEL_ALT), (TEXT if self._hovered else TEXT)
+            fill, fg = (PANEL_ALT if self._hovered else PANEL), (TEXT if self._hovered else MUTED)
         else:
             fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         if disabled:
             fill, fg = "#17211e", "#6f8178"
-        self._round_rect(2, 2, width - 2, height - 2, 18, fill)
+        self._round_rect(2, 2, width - 2, height - 2, 14, fill)
         anchor = "w" if self.variant in {"Nav.TButton", "NavActive.TButton"} else "center"
         x = 14 if anchor == "w" else width / 2
         self.create_text(x, height / 2, text=self.label, fill=fg, font=self.font, anchor=anchor)
@@ -244,47 +244,8 @@ class RoundedCard(tk.Frame):
         width, height = self.winfo_width(), self.winfo_height()
         if width < 8 or height < 8:
             return
-        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 28
+        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 22
         self.surface.create_polygon(rounded_points(x1, y1, x2, y2, radius), fill=PANEL, outline=BORDER, width=1)
-
-
-class RoundedField(tk.Frame):
-    """A padded entry or combo box inside a rounded, focus-aware surface."""
-    def __init__(self, parent, widget_class, **kwargs):
-        super().__init__(parent, bg=BG, bd=0, highlightthickness=0, padx=4, pady=4)
-        self.surface_color = PANEL
-        self.surface = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0)
-        self.surface.place(x=0, y=0, relwidth=1, relheight=1)
-        self.surface.tk.call("lower", self.surface._w)
-        self.field = widget_class(self, **kwargs)
-        self.field.pack(fill="both", expand=True)
-        self.field.bind("<FocusIn>", lambda _event: self._draw_surface())
-        self.field.bind("<FocusOut>", lambda _event: self._draw_surface())
-        self.bind("<Configure>", lambda _event: self._draw_surface())
-
-    def _draw_surface(self):
-        width, height = self.winfo_width(), self.winfo_height()
-        if width < 8 or height < 8:
-            return
-        self.surface.delete("all")
-        focused = self.field == self.focus_get()
-        border = ACCENT if focused else BORDER
-        self.surface.create_polygon(
-            rounded_points(1, 1, width - 1, height - 1, 11),
-            fill="#0b1713", outline=border, width=2 if focused else 1)
-
-    def get(self):
-        return self.field.get()
-
-    def set(self, value):
-        return self.field.set(value)
-
-    def configure(self, cnf=None, **kwargs):
-        if isinstance(cnf, dict):
-            kwargs.update(cnf)
-        return self.field.configure(**kwargs) if kwargs else self.field.configure()
-
-    config = configure
 
 
 def read_led_count() -> int:
@@ -452,15 +413,15 @@ class App(tk.Tk):
         style.map("Mode.TRadiobutton", background=[("selected", PANEL_ALT), ("active", PANEL_ALT)], foreground=[("selected", ACCENT), ("disabled", MUTED)])
         style.configure("TEntry", fieldbackground="#0b1713", foreground=TEXT, insertcolor=TEXT,
                         bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(13, 10), font=(FONT, 10))
+                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
         style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
                   darkcolor=[("focus", ACCENT)])
         style.configure("TSpinbox", fieldbackground="#0b1713", foreground=TEXT, arrowcolor=TEXT,
                         bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(12, 9), font=(FONT, 10))
+                        borderwidth=0, relief="flat", padding=(10, 8), font=(FONT, 10))
         style.configure("TCombobox", fieldbackground="#0b1713", background=PANEL_ALT, foreground=TEXT,
                         arrowcolor=ACCENT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(13, 10), font=(FONT, 10))
+                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
         style.map("TCombobox", fieldbackground=[("readonly", "#0b1713")],
                   foreground=[("readonly", TEXT)], bordercolor=[("focus", ACCENT)],
                   selectbackground=[("readonly", PANEL_ALT)],
@@ -693,14 +654,14 @@ class App(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _card(self, parent, padding=16):
-        return RoundedCard(parent, padding=max(24, padding))
+        return RoundedCard(parent, padding=max(18, padding))
 
     def _layout(self):
         shell = RoundedCard(self, padding=0)
         shell.pack(fill="both", expand=True, padx=22, pady=14)
 
-        header = RoundedCard(shell, padding=16)
-        header.pack(fill="x", padx=12, pady=(12, 0))
+        header = ttk.Frame(shell, style="Header.TFrame", padding=(20, 13))
+        header.pack(fill="x", padx=1, pady=(1, 0))
         brand_mark = (tk.Label(header, image=self.brand_image, bg=PANEL, bd=0)
                       if self.brand_image is not None else
                       tk.Label(header, text="G1", bg=ACCENT, fg=BG, font=(FONT, 10, "bold"),
@@ -723,7 +684,7 @@ class App(tk.Tk):
         RoundedButton(header, text="Refresh", command=self.read_info).pack(side="right", padx=(8, 0))
 
         body = ttk.Frame(shell, style="Root.TFrame")
-        body.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        body.pack(fill="both", expand=True, padx=1, pady=(0, 1))
         sidebar = ttk.Frame(body, style="Sidebar.TFrame", padding=(11, 17))
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -892,7 +853,7 @@ class App(tk.Tk):
         for label, target in (("Screen sync", "Screen"), ("Lighting effects", "Effects"), ("Quick controls", "Controls")):
             link = RoundedButton(other, text=label, style="Nav.TButton",
                                  command=lambda name=target: self._show_page(name))
-            link.pack(fill="x", padx=4, pady=4)
+            link.pack(fill="x", pady=2)
 
     def _update_perimeter_preview(self, _event=None):
         canvas = getattr(self, "preview_canvas", None)
@@ -969,8 +930,8 @@ class App(tk.Tk):
         profiles = self._card(page, padding=12)
         profiles.pack(fill="x", pady=(0, 10))
         ttk.Label(profiles, text="SAVED PROFILES", style="Muted.Card.TLabel").pack(side="left", padx=(0, 10))
-        self.profile_combo = RoundedField(profiles, ttk.Combobox, textvariable=self.profile_name,
-                                          state="readonly", width=24, values=sorted(self.profiles))
+        self.profile_combo = ttk.Combobox(profiles, textvariable=self.profile_name, state="readonly", width=24,
+                                          values=sorted(self.profiles))
         self.profile_combo.pack(side="left", padx=(0, 8))
         self.profile_combo.bind("<<ComboboxSelected>>", self._load_profile)
         RoundedButton(profiles, text="Save profile…", command=self._save_profile).pack(side="left")
@@ -985,7 +946,7 @@ class App(tk.Tk):
             cell = ttk.Frame(general, style="Card.TFrame")
             cell.grid(row=0, column=index, sticky="w", padx=(0, 20))
             ttk.Label(cell, text=label, style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-            entry = RoundedField(cell, ttk.Entry, textvariable=variable, width=width)
+            entry = ttk.Entry(cell, textvariable=variable, width=width)
             entry.pack(anchor="w")
             self.manual_widgets.append(entry)
         edges = ttk.Frame(layout, style="Card.TFrame")
@@ -995,7 +956,7 @@ class App(tk.Tk):
             cell.grid(row=0, column=index, sticky="ew", padx=(0, 8))
             edges.columnconfigure(index, weight=1)
             ttk.Label(cell, text=side.title(), style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-            entry = RoundedField(cell, ttk.Entry, textvariable=self.edge[side], width=8)
+            entry = ttk.Entry(cell, textvariable=self.edge[side], width=8)
             entry.pack(fill="x")
             self.manual_widgets.append(entry)
         ttk.Label(layout, text="Counts must add up to the total. Strip order follows the monitor perimeter.",
