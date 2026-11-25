@@ -49,6 +49,10 @@ GREEN = "#46d6aa"
 RED = "#ff8a70"
 BORDER = "#263b33"
 FONT = "Noto Sans"
+FIELD_BG = "#0b1713"
+BTN_H = 42          # one consistent control height
+CARD_PAD = 20       # inner padding of every card
+GAP = 16            # gap between stacked cards / rows
 
 
 def _claim_single_instance():
@@ -74,8 +78,8 @@ def rounded_points(x1, y1, x2, y2, radius):
     points = []
     for cx, cy, start in ((x2-radius, y1+radius, -90), (x2-radius, y2-radius, 0),
                           (x1+radius, y2-radius, 90), (x1+radius, y1+radius, 180)):
-        for step in range(9):
-            angle = math.radians(start + step * 90 / 8)
+        for step in range(13):
+            angle = math.radians(start + step * 90 / 12)
             points.extend((cx + radius * math.cos(angle), cy + radius * math.sin(angle)))
     return points
 
@@ -88,7 +92,7 @@ class RoundedButton(tk.Canvas):
         self.variant = style
         self.state = kwargs.pop("state", "normal")
         font = tkfont.Font(family=FONT, size=10, weight="bold" if style in {"Accent.TButton", "NavActive.TButton", "ModeActive.TButton"} else "normal")
-        width = max(84, font.measure(text) + 34)
+        width = max(150 if style == "Accent.TButton" else 84, font.measure(text) + 34)
         surface = getattr(parent, "surface_color", None)
         if surface is None:
             try:
@@ -96,14 +100,17 @@ class RoundedButton(tk.Canvas):
             except tk.TclError:
                 parent_style = ""
             surface = PANEL if parent_style in {"Header.TFrame", "Sidebar.TFrame", "Card.TFrame", "CardAlt.TFrame"} else BG
-        super().__init__(parent, width=width, height=46, bg=kwargs.pop("bg", surface),
-                         highlightthickness=0, bd=0, cursor="hand2")
+        super().__init__(parent, width=width, height=BTN_H, bg=kwargs.pop("bg", surface),
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True)
         self.font = font
         self.bind("<Configure>", lambda _event: self._draw())
         self.bind("<Enter>", lambda _event: self._hover(True))
         self.bind("<Leave>", lambda _event: self._hover(False))
         self.bind("<Button-1>", self._click)
         self.bind("<space>", self._click)
+        self.bind("<Return>", self._click)
+        self.bind("<FocusIn>", lambda _event: self._draw())
+        self.bind("<FocusOut>", lambda _event: self._draw())
         self._hovered = False
         self._draw()
 
@@ -153,12 +160,16 @@ class RoundedButton(tk.Canvas):
         elif self.variant == "Mode.TButton":
             fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         elif self.variant == "Nav.TButton":
-            fill, fg = (PANEL_ALT if self._hovered else PANEL), (TEXT if self._hovered else MUTED)
+            fill, fg = ("#20372f" if self._hovered else PANEL_ALT), (TEXT if self._hovered else TEXT)
         else:
             fill, fg = ("#20372f" if self._hovered else PANEL_ALT), TEXT
         if disabled:
             fill, fg = "#17211e", "#6f8178"
-        self._round_rect(2, 2, width - 2, height - 2, 14, fill)
+        tk.Canvas.configure(self, cursor="arrow" if disabled else "hand2")
+        self._round_rect(2, 2, width - 2, height - 2, 16, fill)
+        if not disabled and self.focus_get() == self:
+            self.create_polygon(rounded_points(1, 1, width - 1, height - 1, 16),
+                                fill="", outline="#9beed3", width=1)
         anchor = "w" if self.variant in {"Nav.TButton", "NavActive.TButton"} else "center"
         x = 14 if anchor == "w" else width / 2
         self.create_text(x, height / 2, text=self.label, fill=fg, font=self.font, anchor=anchor)
@@ -229,13 +240,102 @@ class ToggleSwitch(tk.Canvas):
                                 fill="", outline="#9beed3", width=1)
 
 
+class ThemedScale(tk.Canvas):
+    """Slim accent-filled slider that matches the rounded controls (replaces ttk.Scale)."""
+    PAD = 11
+
+    def __init__(self, parent, from_=0.0, to=1.0, variable=None, command=None, **kwargs):
+        self.from_, self.to = float(from_), float(to)
+        self.variable = variable if variable is not None else tk.DoubleVar(value=self.from_)
+        self.command = command
+        self.enabled = True
+        super().__init__(parent, height=34, bg=getattr(parent, "surface_color", PANEL),
+                         highlightthickness=0, bd=0, cursor="hand2", takefocus=True, **kwargs)
+        self.bind("<Button-1>", self._press)
+        self.bind("<B1-Motion>", self._press)
+        self.bind("<Left>", lambda e: self._nudge(-1))
+        self.bind("<Down>", lambda e: self._nudge(-1))
+        self.bind("<Right>", lambda e: self._nudge(1))
+        self.bind("<Up>", lambda e: self._nudge(1))
+        self.bind("<Configure>", lambda _event: self._draw())
+        self.bind("<FocusIn>", lambda _event: self._draw())
+        self.bind("<FocusOut>", lambda _event: self._draw())
+        self.variable.trace_add("write", self._variable_changed)
+        self._draw()
+
+    def _variable_changed(self, *_args):
+        try:
+            if self.winfo_exists():
+                self.after_idle(self._draw)
+        except tk.TclError:
+            pass
+
+    def _value(self):
+        try:
+            value = float(self.variable.get())
+        except (tk.TclError, ValueError):
+            value = self.from_
+        return max(self.from_, min(self.to, value))
+
+    def _commit(self, value):
+        value = max(self.from_, min(self.to, value))
+        if isinstance(self.variable, tk.IntVar):
+            value = round(value)
+        self.variable.set(value)
+        if self.command:
+            self.command(value)
+
+    def _press(self, event):
+        if not self.enabled:
+            return "break"
+        span = max(1, self.winfo_width() - 2 * self.PAD)
+        fraction = max(0.0, min(1.0, (event.x - self.PAD) / span))
+        self._commit(self.from_ + fraction * (self.to - self.from_))
+        return "break"
+
+    def _nudge(self, direction):
+        if self.enabled:
+            self._commit(self._value() + direction * (self.to - self.from_) / 50)
+        return "break"
+
+    def configure(self, cnf=None, **kwargs):
+        if isinstance(cnf, dict):
+            kwargs.update(cnf)
+        if "state" in kwargs:
+            self.enabled = kwargs.pop("state") != "disabled"
+            kwargs["cursor"] = "hand2" if self.enabled else "arrow"
+        result = super().configure(**kwargs) if kwargs else None
+        self._draw()
+        return result
+
+    config = configure
+
+    def _draw(self):
+        self.delete("all")
+        width, height = max(2 * self.PAD + 10, self.winfo_width()), max(34, self.winfo_height())
+        span = self.to - self.from_
+        fraction = (self._value() - self.from_) / span if span else 0
+        x0, x1, cy = self.PAD, width - self.PAD, height / 2
+        x = x0 + fraction * (x1 - x0)
+        trough, fill, thumb = ("#263b33", ACCENT, ACCENT) if self.enabled else ("#1d2b26", "#29463b", "#6f8178")
+        self.create_line(x0, cy, x1, cy, fill=trough, width=6, capstyle=tk.ROUND)
+        if x > x0:
+            self.create_line(x0, cy, x, cy, fill=fill, width=6, capstyle=tk.ROUND)
+        self.create_oval(x - 10, cy - 10, x + 10, cy + 10, fill=thumb, outline=PANEL, width=3)
+        if self.enabled and self.focus_get() == self:
+            self.create_oval(x - 12, cy - 12, x + 12, cy + 12, fill="", outline="#9beed3", width=1)
+
+
 class RoundedCard(tk.Frame):
     """Card with a subtle border, drawn behind its regular ttk contents."""
-    def __init__(self, parent, padding=16):
-        super().__init__(parent, bg=BG, bd=0, highlightthickness=0, padx=padding, pady=padding)
-        self.surface_color = PANEL
+    def __init__(self, parent, padding=16, fill=PANEL):
+        self.fill = fill
+        super().__init__(parent, bg=BG, bd=0, highlightthickness=0,
+                         padx=padding + 8 if padding >= CARD_PAD else padding,
+                         pady=padding - 2 if padding >= CARD_PAD else padding)
+        self.surface_color = fill
         self.surface = tk.Canvas(self, bg=BG, highlightthickness=0, bd=0)
-        self.surface.place(x=0, y=0, relwidth=1, relheight=1)
+        self.surface.place(x=0, y=0, relwidth=1, relheight=1, bordermode="outside")
         self.surface.tk.call("lower", self.surface._w)
         self.bind("<Configure>", self._draw_surface)
 
@@ -244,8 +344,47 @@ class RoundedCard(tk.Frame):
         width, height = self.winfo_width(), self.winfo_height()
         if width < 8 or height < 8:
             return
-        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 22
-        self.surface.create_polygon(rounded_points(x1, y1, x2, y2, radius), fill=PANEL, outline=BORDER, width=1)
+        x1, y1, x2, y2, radius = 1, 1, width - 1, height - 1, 28
+        self.surface.create_polygon(rounded_points(x1, y1, x2, y2, radius), fill=self.fill, outline=BORDER, width=1)
+
+
+class RoundedField(tk.Frame):
+    """A padded entry or combo box inside a rounded, focus-aware surface."""
+    def __init__(self, parent, widget_class, **kwargs):
+        super().__init__(parent, bg=PANEL, bd=0, highlightthickness=0, padx=6, pady=6)
+        self.surface_color = PANEL
+        self.surface = tk.Canvas(self, bg=PANEL, highlightthickness=0, bd=0)
+        self.surface.place(x=0, y=0, relwidth=1, relheight=1, bordermode="outside")
+        self.surface.tk.call("lower", self.surface._w)
+        self.field = widget_class(self, **kwargs)
+        self.field.pack(fill="both", expand=True)
+        self.field.bind("<FocusIn>", lambda _event: self._draw_surface())
+        self.field.bind("<FocusOut>", lambda _event: self._draw_surface())
+        self.bind("<Configure>", lambda _event: self._draw_surface())
+
+    def _draw_surface(self):
+        width, height = self.winfo_width(), self.winfo_height()
+        if width < 8 or height < 8:
+            return
+        self.surface.delete("all")
+        focused = self.field == self.focus_get()
+        border = ACCENT if focused else BORDER
+        self.surface.create_polygon(
+            rounded_points(1, 1, width - 1, height - 1, 11),
+            fill=FIELD_BG, outline=border, width=2 if focused else 1)
+
+    def get(self):
+        return self.field.get()
+
+    def set(self, value):
+        return self.field.set(value)
+
+    def configure(self, cnf=None, **kwargs):
+        if isinstance(cnf, dict):
+            kwargs.update(cnf)
+        return self.field.configure(**kwargs) if kwargs else self.field.configure()
+
+    config = configure
 
 
 def read_led_count() -> int:
@@ -276,7 +415,7 @@ class App(tk.Tk):
             self.logo_image = None
         self.geometry("1220x1040")
         self.after(1000, self._use_mockup_window_size)
-        self.minsize(1080, 940)
+        self.minsize(1160, 1000)
         self.configure(bg=BG)
         self.proc: subprocess.Popen | None = None
         self.active_mode = ""
@@ -411,25 +550,25 @@ class App(tk.Tk):
         style.map("NavActive.TButton", background=[("active", PANEL_ALT)])
         style.configure("Mode.TRadiobutton", background=PANEL, foreground=TEXT, padding=(8, 8), font=(FONT, 10))
         style.map("Mode.TRadiobutton", background=[("selected", PANEL_ALT), ("active", PANEL_ALT)], foreground=[("selected", ACCENT), ("disabled", MUTED)])
-        style.configure("TEntry", fieldbackground="#0b1713", foreground=TEXT, insertcolor=TEXT,
-                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
-        style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
-                  darkcolor=[("focus", ACCENT)])
+        style.configure("TEntry", background=FIELD_BG, fieldbackground=FIELD_BG, foreground=TEXT, insertcolor=TEXT,
+                        bordercolor=FIELD_BG, lightcolor=FIELD_BG, darkcolor=FIELD_BG,
+                        borderwidth=0, relief="flat", padding=(12, 8), font=(FONT, 10))
+        style.map("TEntry", bordercolor=[("focus", FIELD_BG)], lightcolor=[("focus", FIELD_BG)],
+                  darkcolor=[("focus", FIELD_BG)])
         style.configure("TSpinbox", fieldbackground="#0b1713", foreground=TEXT, arrowcolor=TEXT,
                         bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(10, 8), font=(FONT, 10))
-        style.configure("TCombobox", fieldbackground="#0b1713", background=PANEL_ALT, foreground=TEXT,
-                        arrowcolor=ACCENT, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
-                        borderwidth=0, relief="flat", padding=(11, 9), font=(FONT, 10))
-        style.map("TCombobox", fieldbackground=[("readonly", "#0b1713")],
-                  foreground=[("readonly", TEXT)], bordercolor=[("focus", ACCENT)],
+                        borderwidth=0, relief="flat", padding=(12, 9), font=(FONT, 10))
+        style.configure("TCombobox", fieldbackground=FIELD_BG, background=FIELD_BG, foreground=TEXT,
+                        arrowcolor=ACCENT, bordercolor=FIELD_BG, lightcolor=FIELD_BG, darkcolor=FIELD_BG,
+                        borderwidth=0, relief="flat", padding=(12, 8), arrowsize=16, font=(FONT, 10))
+        style.map("TCombobox", fieldbackground=[("readonly", FIELD_BG)],
+                  foreground=[("readonly", TEXT)], bordercolor=[("focus", FIELD_BG)],
                   selectbackground=[("readonly", PANEL_ALT)],
                   selectforeground=[("readonly", TEXT)])
         style.configure("Horizontal.TScale", background=PANEL, troughcolor="#263b33",
                         bordercolor="#263b33", lightcolor=ACCENT, darkcolor=ACCENT,
                         borderwidth=0, relief="flat")
-        style.configure("TSeparator", background=BORDER)
+        style.configure("TSeparator", background=BORDER, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
 
     def _use_mockup_window_size(self):
         # GNOME can restore the previous maximized state for Tk windows.
@@ -654,19 +793,19 @@ class App(tk.Tk):
         threading.Thread(target=worker, daemon=True).start()
 
     def _card(self, parent, padding=16):
-        return RoundedCard(parent, padding=max(18, padding))
+        return RoundedCard(parent, padding=max(CARD_PAD, padding))
 
     def _layout(self):
-        shell = RoundedCard(self, padding=0)
-        shell.pack(fill="both", expand=True, padx=22, pady=14)
+        shell = RoundedCard(self, padding=0, fill=BG)
+        shell.pack(fill="both", expand=True, padx=28, pady=20)
 
-        header = ttk.Frame(shell, style="Header.TFrame", padding=(20, 13))
-        header.pack(fill="x", padx=1, pady=(1, 0))
+        header = RoundedCard(shell, padding=16)
+        header.pack(fill="x", padx=48, pady=(24, 0))
         brand_mark = (tk.Label(header, image=self.brand_image, bg=PANEL, bd=0)
                       if self.brand_image is not None else
                       tk.Label(header, text="G1", bg=ACCENT, fg=BG, font=(FONT, 10, "bold"),
                                width=4, height=2, relief="flat"))
-        brand_mark.pack(side="left", padx=(0, 11))
+        brand_mark.pack(side="left", padx=(0, 12))
         title_box = ttk.Frame(header, style="Header.TFrame")
         title_box.pack(side="left")
         ttk.Label(title_box, text="Mitsuko G1 / Light Sync", style="Title.TLabel").pack(anchor="w")
@@ -680,11 +819,11 @@ class App(tk.Tk):
         status_labels.pack(side="left", fill="x", expand=True)
         ttk.Label(status_labels, textvariable=self.status, style="Status.TLabel").pack(anchor="w")
         ttk.Label(status_labels, textvariable=self.details, style="Muted.Card.TLabel").pack(anchor="w", pady=(2, 0))
-        RoundedButton(header, text="Phone Wi-Fi setup", command=self.show_phone_pairing).pack(side="right", padx=(8, 0))
-        RoundedButton(header, text="Refresh", command=self.read_info).pack(side="right", padx=(8, 0))
+        RoundedButton(header, text="Phone Wi-Fi setup", command=self.show_phone_pairing).pack(side="right", padx=(10, 0))
+        RoundedButton(header, text="Refresh", command=self.read_info).pack(side="right", padx=(10, 0))
 
         body = ttk.Frame(shell, style="Root.TFrame")
-        body.pack(fill="both", expand=True, padx=1, pady=(0, 1))
+        body.pack(fill="both", expand=True, padx=24, pady=(0, 22))
         sidebar = ttk.Frame(body, style="Sidebar.TFrame", padding=(11, 17))
         sidebar.pack(side="left", fill="y")
         sidebar.pack_propagate(False)
@@ -701,7 +840,7 @@ class App(tk.Tk):
         ttk.Label(sidebar, text="94 LEDS  ·  USB HID", style="Muted.Card.TLabel").pack(anchor="w", padx=9)
         ttk.Label(sidebar, text="Music uses PipeWire playback", style="Muted.Card.TLabel", wraplength=145).pack(anchor="w", padx=9, pady=(7, 0))
 
-        content = ttk.Frame(body, style="Root.TFrame", padding=(22, 18, 22, 15))
+        content = ttk.Frame(body, style="Root.TFrame", padding=(24, 20, 24, 24))
         content.pack(side="left", fill="both", expand=True)
         content.rowconfigure(0, weight=1)
         content.columnconfigure(0, weight=1)
@@ -749,14 +888,14 @@ class App(tk.Tk):
 
     def _page_heading(self, parent, title, subtitle):
         heading = ttk.Frame(parent, style="Root.TFrame")
-        heading.pack(fill="x", pady=(0, 12))
+        heading.pack(fill="x", pady=(0, 16))
         title_row = ttk.Frame(heading, style="Root.TFrame")
         title_row.pack(fill="x")
         ttk.Label(title_row, text=title, style="PageTitle.TLabel").pack(side="left")
         if title != "Music ambience":
             RoundedButton(title_row, text="← Music ambience", style="Nav.TButton",
                           command=lambda: self._show_page("Music")).pack(side="right")
-        ttk.Label(heading, text=subtitle, style="PageSub.TLabel").pack(anchor="w", pady=(3, 0))
+        ttk.Label(heading, text=subtitle, style="PageSub.TLabel").pack(anchor="w", pady=(4, 0))
 
     def _build_music_page(self, page):
         self._page_heading(page, "Music ambience", "A clear preview of how each part of the song maps around your monitor.")
@@ -767,20 +906,20 @@ class App(tk.Tk):
         columns.rowconfigure(0, weight=1)
 
         preview = self._card(columns, padding=15)
-        preview.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        preview.grid(row=0, column=0, sticky="nsew", padx=(0, 12))
         ttk.Label(preview, text="PERIMETER MAP", style="Muted.Card.TLabel").pack(anchor="w")
         self.preview_mode_label = ttk.Label(preview, text=f"{self.audio_mode.get().title()} mode", style="Section.TLabel")
         self.preview_mode_label.pack(anchor="w", pady=(4, 0))
         ttk.Label(preview, text="Bass on the bottom · voice and mids on the sides · treble on top",
-                  style="Muted.Card.TLabel", wraplength=410).pack(anchor="w", pady=(4, 5))
+                  style="Muted.Card.TLabel", wraplength=410).pack(anchor="w", pady=(4, 8))
         self.preview_canvas = tk.Canvas(preview, width=330, height=220, bg=PANEL, highlightthickness=0)
-        self.preview_canvas.pack(fill="both", expand=True, pady=(4, 0))
+        self.preview_canvas.pack(fill="both", expand=True, pady=(6, 4))
         self.preview_canvas.bind("<Configure>", self._update_perimeter_preview)
         for color, label, detail in (("#ffbd66", "Bass · bottom", "Beat pulse"),
                                      ("#c99be8", "Voice / mids · sides", "Color body"),
                                      ("#9580ff", "Treble · top", "Transient accents")):
             row = tk.Frame(preview, bg=PANEL_ALT, padx=12, pady=8)
-            row.pack(fill="x", pady=(5, 0))
+            row.pack(fill="x", pady=(6, 0))
             dot = tk.Canvas(row, width=12, height=12, bg=PANEL_ALT, highlightthickness=0)
             dot.create_oval(1, 1, 11, 11, fill=color, outline="")
             dot.pack(side="left", padx=(0, 8))
@@ -788,10 +927,10 @@ class App(tk.Tk):
             tk.Label(row, text=detail, bg=PANEL_ALT, fg=MUTED, font=(FONT, 9)).pack(side="right")
 
         controls_column = ttk.Frame(columns, style="Root.TFrame")
-        controls_column.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        controls_column.grid(row=0, column=1, sticky="nsew", padx=(12, 0))
         controls = self._card(controls_column, padding=14)
         controls.pack(fill="x")
-        ttk.Label(controls, text="Sync mode", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(controls, text="Sync mode", style="Section.TLabel").pack(anchor="w", pady=(0, 12))
 
         mode_grid = ttk.Frame(controls, style="Card.TFrame")
         mode_grid.pack(fill="x")
@@ -800,29 +939,30 @@ class App(tk.Tk):
                                                  ("Treble", "treble"), ("Voice · approx.", "voice"))):
             button = RoundedButton(mode_grid, text=label, style="Mode.TButton",
                                    command=lambda v=value: self._select_music_mode(v))
-            button.grid(row=index // 2, column=index % 2, sticky="ew", padx=3, pady=3)
-            mode_grid.columnconfigure(index % 2, weight=1)
+            button.grid(row=index // 2, column=index % 2, sticky="ew",
+                        padx=(0, 8) if index % 2 == 0 else 0, pady=(0, 8) if index < 2 else 0)
+            mode_grid.columnconfigure(index % 2, weight=1, uniform="musicmode")
             button.mode_value = value
             self.music_mode_buttons.append(button)
             self.manual_widgets.append(button)
         self._refresh_music_modes()
 
         sensitivity_header = ttk.Frame(controls, style="Card.TFrame")
-        sensitivity_header.pack(fill="x", pady=(13, 0))
+        sensitivity_header.pack(fill="x", pady=(16, 0))
         ttk.Label(sensitivity_header, text="Sensitivity", style="Muted.Card.TLabel").pack(side="left")
         ttk.Label(sensitivity_header, textvariable=self.audio_sensitivity_value, style="Card.TLabel").pack(side="right")
-        self.audio_sensitivity_scale = ttk.Scale(controls, from_=0.2, to=5.0, variable=self.audio_sensitivity,
+        self.audio_sensitivity_scale = ThemedScale(controls, from_=0.2, to=5.0, variable=self.audio_sensitivity,
                                                   command=lambda value: self.audio_sensitivity_value.set(f"{float(value):.1f}×"))
-        self.audio_sensitivity_scale.pack(fill="x", pady=(5, 14))
+        self.audio_sensitivity_scale.pack(fill="x", pady=(2, 12))
         self.manual_widgets.append(self.audio_sensitivity_scale)
         self.music_btn = RoundedButton(controls, text="Start music reactive", style="Accent.TButton", command=self.start_music)
         self.music_btn.pack(fill="x")
         self.manual_widgets.append(self.music_btn)
         color_card = self._card(controls_column, padding=14)
-        color_card.pack(fill="x", pady=(10, 0))
+        color_card.pack(fill="x", pady=(GAP, 0))
         ttk.Label(color_card, text="LED COLOR", style="Muted.Card.TLabel").pack(anchor="w")
         color_row = ttk.Frame(color_card, style="Card.TFrame")
-        color_row.pack(fill="x", pady=(8, 0))
+        color_row.pack(fill="x", pady=(10, 0))
         ttk.Label(color_row, text="Palette anchor", style="Card.TLabel").pack(side="left")
         self.music_color_swatch = tk.Canvas(color_row, width=34, height=34, bg=PANEL,
                                             highlightthickness=0, cursor="hand2")
@@ -831,29 +971,32 @@ class App(tk.Tk):
         self.manual_widgets.append(self.music_color_swatch)
         self._update_music_color_swatch()
         bright_header = ttk.Frame(color_card, style="Card.TFrame")
-        bright_header.pack(fill="x", pady=(8, 0))
+        bright_header.pack(fill="x", pady=(14, 0))
         ttk.Label(bright_header, text="Brightness", style="Muted.Card.TLabel").pack(side="left")
         self.music_brightness_label = tk.StringVar(value=str(self.brightness.get()))
         ttk.Label(bright_header, textvariable=self.music_brightness_label, style="Card.TLabel").pack(side="right")
-        self.music_apply_brightness_btn = RoundedButton(bright_header, text="Apply", command=self.apply_brightness)
-        self.music_apply_brightness_btn.pack(side="right", padx=(0, 8))
-        self.manual_widgets.append(self.music_apply_brightness_btn)
-        self.music_brightness_scale = ttk.Scale(color_card, from_=5, to=255, variable=self.brightness,
+        self.music_brightness_scale = ThemedScale(color_card, from_=5, to=255, variable=self.brightness,
             command=lambda value: self.music_brightness_label.set(str(round(float(value)))))
-        self.music_brightness_scale.pack(fill="x", pady=(4, 0))
+        self.music_brightness_scale.pack(fill="x", pady=(2, 8))
         self.manual_widgets.append(self.music_brightness_scale)
+        self.music_apply_brightness_btn = RoundedButton(color_card, text="Apply brightness", command=self.apply_brightness)
+        self.music_apply_brightness_btn.pack(fill="x")
+        self.manual_widgets.append(self.music_apply_brightness_btn)
 
         self.stop_btn = RoundedButton(controls_column, text="Stop live mode", style="Accent.TButton",
             command=lambda: self.stop_sync() if self.proc is not None else self.stop_external_mode(), state="disabled")
-        self.stop_btn.pack(fill="x", pady=(10, 0))
+        self.stop_btn.pack(fill="x", pady=(GAP, 0))
 
         other = self._card(controls_column, padding=14)
-        other.pack(fill="x", pady=(10, 0))
-        ttk.Label(other, text="OTHER SECTIONS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 6))
-        for label, target in (("Screen sync", "Screen"), ("Lighting effects", "Effects"), ("Quick controls", "Controls")):
-            link = RoundedButton(other, text=label, style="Nav.TButton",
+        other.pack(fill="x", pady=(GAP, 0))
+        ttk.Label(other, text="OTHER SECTIONS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 10))
+        links = ttk.Frame(other, style="Card.TFrame")
+        links.pack(fill="x")
+        for index, (label, target) in enumerate((("Screen sync", "Screen"), ("Lighting effects", "Effects"), ("Quick controls", "Controls"))):
+            link = RoundedButton(links, text=label, style="Mode.TButton",
                                  command=lambda name=target: self._show_page(name))
-            link.pack(fill="x", pady=2)
+            link.grid(row=0, column=index, sticky="ew", padx=(0, 8) if index < 2 else 0)
+            links.columnconfigure(index, weight=1, uniform="othernav")
 
     def _update_perimeter_preview(self, _event=None):
         canvas = getattr(self, "preview_canvas", None)
@@ -928,80 +1071,82 @@ class App(tk.Tk):
     def _build_screen_page(self, page):
         self._page_heading(page, "Screen sync", "Map monitor-edge colors to the LED strip.")
         profiles = self._card(page, padding=12)
-        profiles.pack(fill="x", pady=(0, 10))
-        ttk.Label(profiles, text="SAVED PROFILES", style="Muted.Card.TLabel").pack(side="left", padx=(0, 10))
-        self.profile_combo = ttk.Combobox(profiles, textvariable=self.profile_name, state="readonly", width=24,
-                                          values=sorted(self.profiles))
-        self.profile_combo.pack(side="left", padx=(0, 8))
+        profiles.pack(fill="x", pady=(0, GAP))
+        ttk.Label(profiles, text="SAVED PROFILES", style="Muted.Card.TLabel").pack(side="left", padx=(0, 14))
+        self.profile_combo = RoundedField(profiles, ttk.Combobox, textvariable=self.profile_name,
+                                          state="readonly", width=24, values=sorted(self.profiles))
+        self.profile_combo.pack(side="left", padx=(0, 10))
         self.profile_combo.bind("<<ComboboxSelected>>", self._load_profile)
         RoundedButton(profiles, text="Save profile…", command=self._save_profile).pack(side="left")
         layout = self._card(page, padding=16)
-        layout.pack(fill="x", pady=(0, 12))
+        layout.pack(fill="x", pady=(0, GAP))
         ttk.Label(layout, text="STRIP LAYOUT", style="Muted.Card.TLabel").pack(anchor="w")
-        ttk.Label(layout, text="LED count and edge allocation", style="Section.TLabel").pack(anchor="w", pady=(4, 12))
+        ttk.Label(layout, text="LED count and edge allocation", style="Section.TLabel").pack(anchor="w", pady=(4, 14))
         general = ttk.Frame(layout, style="Card.TFrame")
-        general.pack(fill="x", pady=(0, 12))
+        general.pack(fill="x", pady=(0, 14))
         for index, (label, variable, width) in enumerate((("Total LEDs", self.leds, 9), ("Target FPS", self.fps, 9),
                                                           ("Monitor # (X11)", self.monitor, 9))):
             cell = ttk.Frame(general, style="Card.TFrame")
-            cell.grid(row=0, column=index, sticky="w", padx=(0, 20))
-            ttk.Label(cell, text=label, style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-            entry = ttk.Entry(cell, textvariable=variable, width=width)
-            entry.pack(anchor="w")
+            cell.grid(row=0, column=index, sticky="ew", padx=(0, 12))
+            general.columnconfigure(index, weight=1, uniform="strip")
+            general.columnconfigure(3, weight=1, uniform="strip")
+            ttk.Label(cell, text=label, style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 4))
+            entry = RoundedField(cell, ttk.Entry, textvariable=variable, width=width)
+            entry.pack(fill="x")
             self.manual_widgets.append(entry)
         edges = ttk.Frame(layout, style="Card.TFrame")
         edges.pack(fill="x")
         for index, side in enumerate(("bottom", "left", "top", "right")):
             cell = ttk.Frame(edges, style="Card.TFrame")
-            cell.grid(row=0, column=index, sticky="ew", padx=(0, 8))
-            edges.columnconfigure(index, weight=1)
-            ttk.Label(cell, text=side.title(), style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 5))
-            entry = ttk.Entry(cell, textvariable=self.edge[side], width=8)
+            cell.grid(row=0, column=index, sticky="ew", padx=(0, 12 if index < 3 else 0))
+            edges.columnconfigure(index, weight=1, uniform="strip")
+            ttk.Label(cell, text=side.title(), style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 4))
+            entry = RoundedField(cell, ttk.Entry, textvariable=self.edge[side], width=8)
             entry.pack(fill="x")
             self.manual_widgets.append(entry)
         ttk.Label(layout, text="Counts must add up to the total. Strip order follows the monitor perimeter.",
-                  style="Muted.Card.TLabel").pack(anchor="w", pady=(10, 0))
+                  style="Muted.Card.TLabel").pack(anchor="w", pady=(14, 0))
 
         tuning = self._card(page, padding=16)
-        tuning.pack(fill="x", pady=(0, 12))
-        ttk.Label(tuning, text="CAPTURE TUNING", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 10))
+        tuning.pack(fill="x", pady=(0, GAP))
+        ttk.Label(tuning, text="CAPTURE TUNING", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 14))
         sliders = ttk.Frame(tuning, style="Card.TFrame")
         sliders.pack(fill="x")
         self._slider(sliders, "Smoothing", self.smooth, self.smooth_value, 0, 0.95, 0)
         self._slider(sliders, "Edge sampling depth", self.depth, self.depth_value, 0.05, 0.5, 1)
         diagnostics = self._card(page, padding=12)
-        diagnostics.pack(fill="x", pady=(0, 10))
+        diagnostics.pack(fill="x", pady=(0, GAP))
         diag_row = ttk.Frame(diagnostics, style="Card.TFrame")
         diag_row.pack(fill="x")
         ttk.Label(diag_row, textvariable=self.diagnostic, style="Muted.Card.TLabel", wraplength=620).pack(side="left", fill="x", expand=True)
         RoundedButton(diag_row, text="Check connections", command=self.refresh_diagnostics).pack(side="right")
         actions = ttk.Frame(page, style="Root.TFrame")
-        actions.pack(fill="x", pady=(2, 0))
+        actions.pack(fill="x", pady=(4, 0))
         self.start_btn = RoundedButton(actions, text="Start screen sync", style="Accent.TButton", command=self.start_sync)
         self.start_btn.pack(side="left")
         self.choose_monitor_btn = RoundedButton(actions, text="Choose monitor…", command=self.choose_monitor)
-        self.choose_monitor_btn.pack(side="left", padx=(8, 0))
+        self.choose_monitor_btn.pack(side="left", padx=(10, 0))
         self.manual_widgets.append(self.start_btn)
         ttk.Label(actions, text="On Wayland, use Choose monitor to select a screen in the portal.",
-                  style="PageSub.TLabel").pack(side="left", padx=(14, 0))
+                  style="PageSub.TLabel").pack(side="left", padx=(16, 0))
 
     def _build_effects_page(self, page):
         self._page_heading(page, "Lighting effects", "Firmware presets run on the G1; app effects stream from your computer.")
         device = self._card(page, padding=16)
-        device.pack(fill="x", pady=(0, 12))
-        ttk.Label(device, text="DEVICE PRESETS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 8))
+        device.pack(fill="x", pady=(0, GAP))
+        ttk.Label(device, text="DEVICE PRESETS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
         self._effect_group(device, "Dynamic · built in", [(f"Dynamic {i}", 2, i - 1) for i in range(1, 8)])
-        ttk.Separator(device).pack(fill="x", pady=12)
+        ttk.Separator(device).pack(fill="x", pady=16)
         self._effect_group(device, "Pickup · sound reactive, built in", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
         software = self._card(page, padding=16)
         software.pack(fill="x")
-        ttk.Label(software, text="APP EFFECTS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(software, text="APP EFFECTS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
         self._software_effect_group(software)
 
     def _build_controls_page(self, page):
         self._page_heading(page, "Quick controls", "Set a steady color, adjust brightness, power, and notification flash.")
         notification = self._card(page, padding=14)
-        notification.pack(fill="x", pady=(0, 12))
+        notification.pack(fill="x", pady=(0, GAP))
         notification_header = ttk.Frame(notification, style="Card.TFrame")
         notification_header.pack(fill="x")
         ttk.Label(notification_header, text="NOTIFICATION FLASH", style="Muted.Card.TLabel").pack(side="left")
@@ -1012,24 +1157,24 @@ class App(tk.Tk):
                   style="Card.TLabel").pack(side="right", padx=(0, 10))
         ttk.Label(notification,
                   text="Briefly flash the selected palette color when a desktop notification arrives.",
-                  style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(7, 3))
+                  style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(12, 4))
         ttk.Label(notification,
                   text="Runs only in a known steady state. Apply a color or built-in effect first; screen, music, and app effects are left alone.",
                   style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
 
         color_card = self._card(page, padding=17)
-        color_card.pack(fill="x", pady=(0, 12))
+        color_card.pack(fill="x", pady=(0, GAP))
         ttk.Label(color_card, text="COLOR", style="Muted.Card.TLabel").pack(anchor="w")
-        ttk.Label(color_card, text="Choose a palette anchor or apply a solid color", style="Section.TLabel").pack(anchor="w", pady=(4, 13))
+        ttk.Label(color_card, text="Choose a palette anchor or apply a solid color", style="Section.TLabel").pack(anchor="w", pady=(4, 16))
         swatches = ttk.Frame(color_card, style="Card.TFrame")
-        swatches.pack(fill="x", pady=(0, 12))
+        swatches.pack(fill="x", pady=(0, 16))
         self.palette_swatches = []
         for name, color in (("Mint", "#46d6aa"), ("Blue", "#7ea7ff"),
                             ("Violet", "#c49bff"), ("Coral", "#ff8a70"),
                             ("Amber", "#ffd36d"), ("Soft white", "#f4f4f0")):
             swatch = tk.Canvas(swatches, width=40, height=40, bg=PANEL, highlightthickness=0,
                                cursor="hand2")
-            swatch.pack(side="left", padx=(0, 8))
+            swatch.pack(side="left", padx=(0, 10))
             swatch.bind("<Button-1>", lambda _event, value=color: self.select_palette_color(value))
             swatch.bind("<Enter>", lambda _event, widget=swatch: widget.configure(cursor="hand2"))
             swatch.palette_color = color
@@ -1042,21 +1187,21 @@ class App(tk.Tk):
         self.color_btn.pack(side="left")
         self.manual_widgets.append(self.color_btn)
         self.color_value = tk.StringVar(value=self.color.upper())
-        ttk.Label(color_row, textvariable=self.color_value, style="Card.TLabel").pack(side="left", padx=(11, 0))
+        ttk.Label(color_row, textvariable=self.color_value, style="Card.TLabel").pack(side="left", padx=(14, 0))
         self.set_color_btn = RoundedButton(color_row, text="Apply solid color", command=self.set_color)
         self.set_color_btn.pack(side="right")
         self.manual_widgets.append(self.set_color_btn)
 
         brightness_card = self._card(page, padding=17)
-        brightness_card.pack(fill="x", pady=(0, 12))
+        brightness_card.pack(fill="x", pady=(0, GAP))
         bright_header = ttk.Frame(brightness_card, style="Card.TFrame")
         bright_header.pack(fill="x")
         ttk.Label(bright_header, text="BRIGHTNESS", style="Muted.Card.TLabel").pack(side="left")
         self.brightness_label = tk.StringVar(value=str(self.brightness.get()))
         ttk.Label(bright_header, textvariable=self.brightness_label, style="Card.TLabel").pack(side="right")
-        self.brightness_scale = ttk.Scale(brightness_card, from_=5, to=255, variable=self.brightness,
+        self.brightness_scale = ThemedScale(brightness_card, from_=5, to=255, variable=self.brightness,
                                           command=lambda value: self.brightness_label.set(str(round(float(value)))))
-        self.brightness_scale.pack(fill="x", pady=(11, 12))
+        self.brightness_scale.pack(fill="x", pady=(8, 14))
         self.manual_widgets.append(self.brightness_scale)
         self.apply_brightness_btn = RoundedButton(brightness_card, text="Apply brightness", command=self.apply_brightness)
         self.apply_brightness_btn.pack(anchor="w")
@@ -1065,51 +1210,51 @@ class App(tk.Tk):
         power = self._card(page, padding=17)
         power.pack(fill="x")
         ttk.Label(power, text="POWER", style="Muted.Card.TLabel").pack(anchor="w")
-        ttk.Label(power, text="Turn the LED strip off", style="Section.TLabel").pack(anchor="w", pady=(4, 12))
+        ttk.Label(power, text="Turn the LED strip off", style="Section.TLabel").pack(anchor="w", pady=(4, 16))
         self.off_btn = RoundedButton(power, text="Turn LEDs off", style="Stop.TButton", command=self.turn_off)
         self.off_btn.pack(anchor="w")
         self.manual_widgets.append(self.off_btn)
 
     def _slider(self, parent, label, var, value_var, low, high, column):
         frame = ttk.Frame(parent, style="Card.TFrame")
-        frame.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 20, 12))
-        parent.columnconfigure(column, weight=1)
+        frame.grid(row=0, column=column, sticky="ew", padx=(0, 16) if column == 0 else (16, 0))
+        parent.columnconfigure(column, weight=1, uniform="tune")
         header = ttk.Frame(frame, style="Card.TFrame")
         header.pack(fill="x")
         ttk.Label(header, text=label, style="Muted.Card.TLabel").pack(side="left")
         ttk.Label(header, textvariable=value_var, style="Card.TLabel").pack(side="right")
-        scale = ttk.Scale(frame, from_=low, to=high, variable=var, command=lambda value: value_var.set(f"{float(value):.2f}"))
-        scale.pack(fill="x", pady=(5, 0))
+        scale = ThemedScale(frame, from_=low, to=high, variable=var, command=lambda value: value_var.set(f"{float(value):.2f}"))
+        scale.pack(fill="x", pady=(2, 0))
         self.manual_widgets.append(scale)
         return scale
 
     def _effect_group(self, parent, title, entries):
         group = ttk.Frame(parent, style="Card.TFrame")
-        group.pack(fill="x", pady=(4, 5))
-        ttk.Label(group, text=title, style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 6))
+        group.pack(fill="x")
+        ttk.Label(group, text=title, style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 10))
         row = ttk.Frame(group, style="Card.TFrame")
         row.pack(fill="x")
         for index, (label, effect_type, effect_index) in enumerate(entries):
             button = RoundedButton(row, text=label,
                                 command=lambda t=effect_type, i=effect_index, n=label: self.apply_device_effect(t, i, n))
-            column_count = 4
-            button.grid(row=index // column_count, column=index % column_count, sticky="ew",
-                        padx=(0, 6), pady=3)
-            row.columnconfigure(index % column_count, weight=1)
+            column_count = len(entries)
+            button.grid(row=0, column=index, sticky="ew",
+                        padx=(0, 8) if index < column_count - 1 else 0)
+            row.columnconfigure(index, weight=1, uniform=title)
             self.effect_buttons.append(button)
             self.manual_widgets.append(button)
 
     def _software_effect_group(self, parent):
         group = ttk.Frame(parent, style="Card.TFrame")
-        group.pack(fill="x", pady=(5, 0))
-        ttk.Label(group, text="App generated · Color Flow, Aurora, Breathe, Comet, Ember", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 6))
+        group.pack(fill="x")
+        ttk.Label(group, text="App generated · Color Flow, Aurora, Breathe, Comet, Ember", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 10))
         row = ttk.Frame(group, style="Card.TFrame")
         row.pack(fill="x")
         for index, (label, name) in enumerate((("Color Flow", "color_flow"), ("Aurora", "aurora"),
                                                 ("Breathe", "breathe"), ("Comet", "comet"), ("Ember", "ember"))):
             button = RoundedButton(row, text=label, command=lambda n=name: self.start_animation(n))
-            button.grid(row=index // 3, column=index % 3, sticky="ew", padx=(0, 6), pady=3)
-            row.columnconfigure(index % 3, weight=1)
+            button.grid(row=0, column=index, sticky="ew", padx=(0, 8) if index < 4 else 0)
+            row.columnconfigure(index, weight=1, uniform="appfx")
             self.effect_buttons.append(button)
             self.manual_widgets.append(button)
 
