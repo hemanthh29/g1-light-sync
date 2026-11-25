@@ -12,6 +12,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import tkinter.font as tkfont
 from pathlib import Path
@@ -197,6 +198,9 @@ class App(tk.Tk):
         self.nav_buttons = {}
         self.pages = {}
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
+        self.notification_monitor = None
+        self.notification_flash_running = False
+        self.pending_device_effect = None
         self.color = "#46d6aa"
         try:
             stored_color = json.loads(CONFIG.read_text()).get("color")
@@ -208,11 +212,13 @@ class App(tk.Tk):
         self._vars()
         self._layout()
         self._init_tray_indicator()
+        self.after(700, self._restore_notification_monitor)
         self.after(100, self._poll)
         existing_pid = self._external_sync_pid()
         if existing_pid is not None:
             self.external_pid = existing_pid
             self.active_mode = "External live mode"
+            self._clear_notification_state()
             self.status.set("Another live mode is controlling the strip")
             self.status_dot.itemconfigure(1, fill=GREEN)
             self.details.set("Stop the current mode to switch to music reactive or other effects")
@@ -342,8 +348,144 @@ class App(tk.Tk):
         self.depth_value = tk.StringVar(value=f"{self.depth.get():.2f}")
         self.audio_sensitivity = tk.DoubleVar(value=float(settings.get("audio_sensitivity", 1.5)))
         self.audio_sensitivity_value = tk.StringVar(value=f"{self.audio_sensitivity.get():.1f}×")
+        self.notification_flash_enabled = tk.BooleanVar(value=bool(settings.get("notification_flash", False)))
+        self.notification_restore_state = self._valid_notification_state(settings.get("notification_restore_state"))
         saved_mode = settings.get("audio_mode", "combined")
         self.audio_mode = tk.StringVar(value=saved_mode if saved_mode in {"combined", "bass", "treble", "voice"} else "combined")
+
+    @staticmethod
+    def _valid_notification_state(value):
+        if not isinstance(value, list) or not value:
+            return None
+        if value[0] == "off" and len(value) == 1:
+            return ("off",)
+        if value[0] == "color" and len(value) == 4:
+            try:
+                channels = tuple(max(0, min(255, int(item))) for item in value[1:])
+                return ("color", *channels)
+            except (TypeError, ValueError):
+                return None
+        if value[0] == "effect" and len(value) == 3:
+            try:
+                return ("effect", int(value[1]), int(value[2]))
+            except (TypeError, ValueError):
+                return None
+        return None
+
+    def _save_notification_preference(self):
+        try:
+            settings = json.loads(GUI_CONFIG.read_text())
+        except (OSError, ValueError):
+            settings = {}
+        settings["notification_flash"] = bool(self.notification_flash_enabled.get())
+        GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+
+    def _toggle_notification_flash(self):
+        enabled = bool(self.notification_flash_enabled.get())
+        self._save_notification_preference()
+        if enabled:
+            if not self._start_notification_monitor():
+                self.notification_flash_enabled.set(False)
+                self._save_notification_preference()
+                return
+            self.details.set("Notification flash enabled · set a color or built-in effect to establish a restore state")
+        else:
+            self._stop_notification_monitor()
+            self.details.set("Notification flash disabled")
+
+    def _restore_notification_monitor(self):
+        if self.notification_flash_enabled.get():
+            self._start_notification_monitor()
+
+    def _start_notification_monitor(self):
+        if self.notification_monitor is not None and self.notification_monitor.poll() is None:
+            return True
+        monitor = shutil.which("dbus-monitor")
+        if not monitor:
+            messagebox.showerror("Notification flash unavailable",
+                "dbus-monitor is missing. Install the latest Mitsuko G1 package, which includes the required D-Bus tools.",
+                parent=self)
+            return False
+        match = "type='method_call',interface='org.freedesktop.Notifications',member='Notify'"
+        try:
+            process = subprocess.Popen([monitor, "--session", match], stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, bufsize=1, start_new_session=True)
+        except OSError as exc:
+            messagebox.showerror("Notification flash unavailable", str(exc), parent=self)
+            return False
+        self.notification_monitor = process
+        threading.Thread(target=self._read_notification_monitor, args=(process,), daemon=True).start()
+        return True
+
+    def _read_notification_monitor(self, process):
+        if process.stdout is not None:
+            for line in process.stdout:
+                if "org.freedesktop.Notifications" in line and "member=Notify" in line:
+                    self.messages.put(("notification", ""))
+        code = process.wait()
+        if self.notification_monitor is process and code != 0:
+            self.messages.put(("notification_monitor_error", "D-Bus notification monitoring stopped."))
+
+    def _stop_notification_monitor(self):
+        process, self.notification_monitor = self.notification_monitor, None
+        if process is not None and process.poll() is None:
+            process.terminate()
+
+    def _remember_notification_state(self, state):
+        self.notification_restore_state = tuple(state)
+        try:
+            settings = json.loads(GUI_CONFIG.read_text())
+        except (OSError, ValueError):
+            settings = {}
+        settings["notification_restore_state"] = list(state)
+        GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+
+    def _clear_notification_state(self):
+        self.notification_restore_state = None
+        try:
+            settings = json.loads(GUI_CONFIG.read_text())
+        except (OSError, ValueError):
+            settings = {}
+        settings.pop("notification_restore_state", None)
+        GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
+
+    def _notification_flash(self):
+        if (not self.notification_flash_enabled.get() or self.notification_flash_running
+                or self.proc is not None or self.pending_device_effect is not None
+                or self._external_sync_pid() is not None):
+            return
+        restore = self.notification_restore_state
+        if restore is None:
+            return
+        flash_rgb = tuple(int(self.color[index:index + 2], 16) for index in (1, 3, 5))
+        flash_command = self._base_cmd() + ["color", *(str(channel) for channel in flash_rgb)]
+        if restore[0] == "color":
+            restore_command = self._base_cmd() + ["color", *(str(channel) for channel in restore[1:])]
+        elif restore[0] == "effect":
+            restore_command = self._base_cmd() + ["effect", str(restore[1]), str(restore[2])]
+        else:
+            restore_command = self._base_cmd() + ["off"]
+        self.notification_flash_running = True
+        self._set_manual_controls(False)
+
+        def worker():
+            error = ""
+            try:
+                result = subprocess.run(flash_command, cwd=ROOT, env=self._env(),
+                                         capture_output=True, text=True, timeout=5)
+                if result.returncode != 0:
+                    raise RuntimeError((result.stderr or result.stdout).strip() or "Could not flash the strip.")
+                time.sleep(0.45)
+                if self.proc is None and self._external_sync_pid() is None:
+                    result = subprocess.run(restore_command, cwd=ROOT, env=self._env(),
+                                            capture_output=True, text=True, timeout=5)
+                    if result.returncode != 0:
+                        raise RuntimeError((result.stderr or result.stdout).strip() or "Could not restore the previous light state.")
+            except Exception as exc:
+                error = str(exc)
+            self.messages.put(("notification_flash_complete", error))
+
+        threading.Thread(target=worker, daemon=True).start()
 
     def _card(self, parent, padding=16):
         return RoundedCard(parent, padding=padding)
@@ -748,6 +890,21 @@ class App(tk.Tk):
         self.off_btn.pack(anchor="w")
         self.manual_widgets.append(self.off_btn)
 
+        notification = self._card(page, padding=17)
+        notification.pack(fill="x", pady=(12, 0))
+        notification_header = ttk.Frame(notification, style="Card.TFrame")
+        notification_header.pack(fill="x")
+        ttk.Label(notification_header, text="NOTIFICATION FLASH", style="Muted.Card.TLabel").pack(side="left")
+        self.notification_toggle = ttk.Checkbutton(
+            notification_header, text="Enable", variable=self.notification_flash_enabled,
+            command=self._toggle_notification_flash)
+        self.notification_toggle.pack(side="right")
+        ttk.Label(notification, text="Briefly flash the current palette color when a desktop notification arrives.",
+                  style="Section.TLabel", wraplength=700).pack(anchor="w", pady=(8, 5))
+        ttk.Label(notification,
+                  text="Only runs while the strip is in a known steady state; screen, music, and app effects are left alone. Notification text is not saved.",
+                  style="Muted.Card.TLabel", wraplength=700).pack(anchor="w")
+
     def _slider(self, parent, label, var, value_var, low, high, column):
         frame = ttk.Frame(parent, style="Card.TFrame")
         frame.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 20, 12))
@@ -840,7 +997,20 @@ class App(tk.Tk):
         try:
             while True:
                 kind, payload = self.messages.get_nowait()
-                if kind == "error":
+                if kind == "notification":
+                    self._notification_flash()
+                elif kind == "notification_monitor_error":
+                    self.notification_monitor = None
+                    self.notification_flash_enabled.set(False)
+                    self._save_notification_preference()
+                    self.details.set(payload)
+                elif kind == "notification_flash_complete":
+                    self.notification_flash_running = False
+                    if self.proc is None and self._external_sync_pid() is None and self.pending_device_effect is None:
+                        self._set_manual_controls(True)
+                    if payload:
+                        self.details.set(f"Notification flash error · {payload}")
+                elif kind == "error":
                     self.status.set("Could not check the device")
                     self.status_dot.itemconfigure(1, fill=RED)
                     self.details.set(payload)
@@ -870,6 +1040,13 @@ class App(tk.Tk):
                         self.details.set(output or "Device effect command completed")
                         if result["code"] != 0:
                             messagebox.showerror("Effect failed", output or "The device rejected the effect command.", parent=self)
+                        elif self.pending_device_effect is not None:
+                            self._remember_notification_state(("effect", *self.pending_device_effect))
+                        self.pending_device_effect = None
+                    elif result["callback"] == "solid_color" and result["code"] == 0:
+                        self._remember_notification_state(("color", *(int(self.color[index:index + 2], 16) for index in (1, 3, 5))))
+                    elif result["callback"] == "lights_off" and result["code"] == 0:
+                        self._remember_notification_state(("off",))
                 elif kind == "diagnostics":
                     self.diagnostic.set(payload)
                 elif kind == "log":
@@ -884,6 +1061,7 @@ class App(tk.Tk):
             mode = self.active_mode or "Live mode"
             self.proc = None
             self.active_mode = ""
+            self._clear_notification_state()
             self.start_btn.configure(state="normal")
             self.stop_btn.configure(state="disabled")
             self.stop_btn.configure(text="Stop live mode")
@@ -891,6 +1069,7 @@ class App(tk.Tk):
             self.details.set(self.last_process_error or f"{mode} stopped")
             self.last_process_error = ""
             if self._closing_after_stop:
+                self._stop_notification_monitor()
                 self.destroy()
                 return
         elif self.external_pid is not None and self._external_sync_pid() is None:
@@ -1005,10 +1184,12 @@ class App(tk.Tk):
     def _external_mode_stopped(self):
         self.external_pid = None
         self.active_mode = ""
+        self._clear_notification_state()
         self.stop_btn.configure(text="Stop live mode", command=self.stop_sync, state="disabled")
         self._set_manual_controls(True)
         self.details.set("Live mode stopped · choose Music Reactive or another effect")
         if self._closing_after_stop:
+            self._stop_notification_monitor()
             self.destroy()
 
     def _launch_sync(self):
@@ -1025,6 +1206,7 @@ class App(tk.Tk):
             self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
             self.active_mode = "Screen sync"
+            self._clear_notification_state()
             self.last_process_error = ""
             self._set_manual_controls(False)
             self.details.set(f"Screen sync running · target {values['fps']} FPS")
@@ -1213,6 +1395,7 @@ class App(tk.Tk):
     def apply_device_effect(self, effect_type, effect_index, label):
         if self.proc is not None:
             return
+        self.pending_device_effect = (effect_type, effect_index)
         self._set_manual_controls(False)
         self.details.set(f"Applying {label}…")
         self._run_async(self._base_cmd() + ["effect", str(effect_type), str(effect_index)], "device_effect")
@@ -1232,6 +1415,7 @@ class App(tk.Tk):
                                          stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
             threading.Thread(target=self._read_process, args=(self.proc,), daemon=True).start()
             self.active_mode = name.replace("_", " ").title()
+            self._clear_notification_state()
             self.last_process_error = ""
             self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
@@ -1270,6 +1454,7 @@ class App(tk.Tk):
                                          stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
             threading.Thread(target=self._read_process, args=(self.proc,), daemon=True).start()
             self.active_mode = f"Music · {self.audio_mode.get().title()}"
+            self._clear_notification_state()
             self.last_process_error = ""
             self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
@@ -1286,13 +1471,13 @@ class App(tk.Tk):
 
     def set_color(self):
         r, g, b = (int(self.color[i:i + 2], 16) for i in (1, 3, 5))
-        self._run_async(self._base_cmd() + ["color", str(r), str(g), str(b)])
+        self._run_async(self._base_cmd() + ["color", str(r), str(g), str(b)], "solid_color")
 
     def turn_off(self):
         if self.proc is not None:
             self.stop_sync()
             return
-        self._run_async(self._base_cmd() + ["off"])
+        self._run_async(self._base_cmd() + ["off"], "lights_off")
 
     def apply_brightness(self):
         value = self.brightness.get()
@@ -1377,6 +1562,7 @@ class App(tk.Tk):
                 self.external_pid = external_pid
                 self.stop_external_mode()
         else:
+            self._stop_notification_monitor()
             self.destroy()
 
 
