@@ -36,6 +36,7 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
@@ -47,11 +48,14 @@ public class MainActivity extends Activity {
     private static final int TEXT = Color.rgb(242,247,244), MUTED = Color.rgb(155,177,166), GREEN = Color.rgb(70,214,170);
     private final ExecutorService io = Executors.newSingleThreadExecutor();
     private final Handler handler = new Handler(Looper.getMainLooper());
+    private final AtomicBoolean refreshInFlight = new AtomicBoolean(false);
     private TextView link, linkDetail, mode, brightnessValue;
     private LinearLayout profileRow;
     private SeekBar brightness;
     private int currentBrightness = 70;
+    private boolean hasConnectedBefore=false, reconnectRetryScheduled=false;
     private final Runnable poll = new Runnable() { @Override public void run() { refresh(false); handler.postDelayed(this, 5000); } };
+    private final Runnable reconnectRetry = new Runnable() { @Override public void run() { reconnectRetryScheduled=false; refresh(false); } };
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -73,7 +77,7 @@ public class MainActivity extends Activity {
     }
 
     @Override protected void onResume() { super.onResume(); handler.post(poll); }
-    @Override protected void onPause() { handler.removeCallbacks(poll); super.onPause(); }
+    @Override protected void onPause() { handler.removeCallbacks(poll); handler.removeCallbacks(reconnectRetry); reconnectRetryScheduled=false; super.onPause(); }
     @Override protected void onDestroy() { io.shutdownNow(); super.onDestroy(); }
 
     private int dp(float x) { return Math.round(x * getResources().getDisplayMetrics().density); }
@@ -189,40 +193,60 @@ public class MainActivity extends Activity {
     private volatile String discoveredWifiBase="";
     private String wifiBase(){return getPreferences(MODE_PRIVATE).getString("wifiBase","");}
     private String wifiToken(){return getPreferences(MODE_PRIVATE).getString("wifiToken","");}
-    private void refresh(boolean notify){io.execute(()->{try{JSONObject st=get("/api/status");String via=lastTransport;JSONArray names=get("/api/profiles").optJSONArray("profiles");runOnUiThread(()->{
-        boolean device=st.optBoolean("deviceConnected"), cap=st.optJSONObject("capture")!=null&&st.optJSONObject("capture").optBoolean("running");
-        link.setText(device?"Laptop linked · G1 connected":"Laptop linked · G1 not detected");linkDetail.setText(via.equals("Wi-Fi")?"Wi-Fi · same network":"USB debugging · ADB tunnel");String m=st.optString("mode","idle");
-        JSONObject light=st.optJSONObject("lightState");
-        if(m.equals("screen"))mode.setText("Screen sync is on");
-        else if(m.equals("music"))mode.setText("Music reactive is on");
-        else if(m.equals("animate"))mode.setText("Lighting effect is on");
-        else mode.setText(lightStatus(light));
-        if(light!=null&&light.has("brightness")){
-            int raw=Math.max(5,Math.min(255,light.optInt("brightness",currentBrightness*255/100)));
-            currentBrightness=Math.round(raw*100f/255f);brightness.setProgress(currentBrightness);brightnessValue.setText(currentBrightness+"%");
-        }
-        if(names!=null){profileRow.removeAllViews();for(int i=0;i<names.length();i++){String n=names.optString(i);Button b=button(n,false);LinearLayout.LayoutParams p=lp(-2,42);p.rightMargin=dp(8);profileRow.addView(b,p);b.setOnClickListener(v->send("screen",json("profile",n)));}}
-        if(notify)Toast.makeText(this,device?"Laptop link ready · G1 connected" : (cap?"Laptop link ready; G1 not detected":"Laptop link ready"),Toast.LENGTH_SHORT).show();
-    });}catch(Exception e){runOnUiThread(()->{link.setText("Laptop not found · check connection");linkDetail.setText("Same Wi-Fi or USB debugging");mode.setText("Waiting for laptop");if(notify)Toast.makeText(this,"Open G1 Light Sync on the laptop and connect via Wi-Fi or USB",Toast.LENGTH_LONG).show();});}});}
+    private void refresh(boolean notify){
+        if(!refreshInFlight.compareAndSet(false,true))return;
+        io.execute(()->{
+            try{
+                JSONObject st=get("/api/status");String via=lastTransport;
+                JSONArray names=get("/api/profiles").optJSONArray("profiles");
+                runOnUiThread(()->{
+                    hasConnectedBefore=true;handler.removeCallbacks(reconnectRetry);reconnectRetryScheduled=false;
+                    boolean device=st.optBoolean("deviceConnected"), cap=st.optJSONObject("capture")!=null&&st.optJSONObject("capture").optBoolean("running");
+                    link.setText(device?"Laptop linked · G1 connected":"Laptop linked · G1 not detected");
+                    linkDetail.setText(via.equals("Wi-Fi")?"Wi-Fi · same network":"USB debugging · ADB tunnel");
+                    String m=st.optString("mode","idle");JSONObject light=st.optJSONObject("lightState");
+                    if(m.equals("screen"))mode.setText("Screen sync is on");
+                    else if(m.equals("music"))mode.setText("Music reactive is on");
+                    else if(m.equals("animate"))mode.setText("Lighting effect is on");
+                    else mode.setText(lightStatus(light));
+                    if(light!=null&&light.has("brightness")){
+                        int raw=Math.max(5,Math.min(255,light.optInt("brightness",currentBrightness*255/100)));
+                        currentBrightness=Math.round(raw*100f/255f);brightness.setProgress(currentBrightness);brightnessValue.setText(currentBrightness+"%");
+                    }
+                    if(names!=null){profileRow.removeAllViews();for(int i=0;i<names.length();i++){String n=names.optString(i);Button b=button(n,false);LinearLayout.LayoutParams p=lp(-2,42);p.rightMargin=dp(8);profileRow.addView(b,p);b.setOnClickListener(v->send("screen",json("profile",n)));}}
+                    if(notify)Toast.makeText(this,device?"Laptop link ready · G1 connected" : (cap?"Laptop link ready; G1 not detected":"Laptop link ready"),Toast.LENGTH_SHORT).show();
+                });
+            }catch(Exception e){runOnUiThread(()->{
+                if(hasConnectedBefore){
+                    link.setText("Reconnecting to laptop…");linkDetail.setText("Retrying over Wi-Fi or USB automatically");
+                    if(!reconnectRetryScheduled){reconnectRetryScheduled=true;handler.postDelayed(reconnectRetry,1500);}
+                    if(notify)Toast.makeText(this,"Connection interrupted · retrying automatically",Toast.LENGTH_SHORT).show();
+                }else{
+                    link.setText("Laptop not found · check connection");linkDetail.setText("Same Wi-Fi or USB debugging");mode.setText("Waiting for laptop");
+                    if(notify)Toast.makeText(this,"Open G1 Light Sync on the laptop and connect via Wi-Fi or USB",Toast.LENGTH_LONG).show();
+                }
+            });}finally{refreshInFlight.set(false);}
+        });
+    }
     private JSONObject get(String path)throws Exception{return requestPreferred(path,"GET",null);}
     private JSONObject postAction(JSONObject data)throws Exception{return requestPreferred("/api/action","POST",data);}
     private JSONObject requestPreferred(String path,String method,JSONObject body)throws Exception{
         Exception wifiError=null;String token=wifiToken();
         if(!token.isEmpty()&&System.currentTimeMillis()>=wifiRetryAfter){
             String remembered=wifiBase();
-            if(!remembered.isEmpty())try{JSONObject result=request(remembered+path,token,method,body,900,1800);lastTransport="Wi-Fi";wifiRetryAfter=0;return result;}
+            if(!remembered.isEmpty())try{JSONObject result=request(remembered+path,token,method,body,2500,7000);lastTransport="Wi-Fi";wifiRetryAfter=0;return result;}
             catch(Exception e){wifiError=e;}
             String cached=discoveredWifiBase;
             if(!cached.isEmpty()&&!cached.equals(remembered))try{
-                JSONObject result=request(cached+path,token,method,body,900,1800);lastTransport="Wi-Fi";wifiRetryAfter=0;
+                JSONObject result=request(cached+path,token,method,body,2500,7000);lastTransport="Wi-Fi";wifiRetryAfter=0;
                 getPreferences(MODE_PRIVATE).edit().putString("wifiBase",cached).apply();return result;
             }catch(Exception e){wifiError=e;}
             // Do not block a lighting tap on UDP discovery. Keep USB as the fast fallback,
             // then refresh the Wi-Fi address in the background for the next request.
             discoverWifiBasesAsync();
-            wifiRetryAfter=System.currentTimeMillis()+3500;
+            wifiRetryAfter=System.currentTimeMillis()+1500;
         }
-        try{JSONObject result=request(USB_BASE+path,null,method,body);lastTransport="USB";return result;}
+        try{JSONObject result=request(USB_BASE+path,null,method,body,1500,6000);lastTransport="USB";return result;}
         catch(Exception e){if(wifiError!=null)throw new Exception("Wi-Fi: "+wifiError.getMessage()+"; USB: "+e.getMessage());throw e;}
     }
     private void discoverWifiBasesAsync(){
@@ -261,12 +285,18 @@ public class MainActivity extends Activity {
         return request(url,token,method,body,1200,3000);
     }
     private JSONObject request(String url,String token,String method,JSONObject body,int connectTimeout,int readTimeout)throws Exception{
-        HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();c.setConnectTimeout(connectTimeout);c.setReadTimeout(readTimeout);c.setRequestMethod(method);c.setUseCaches(false);c.setRequestProperty("Connection","keep-alive");
-        c.setRequestProperty("X-G1-Client-Id",clientId());c.setRequestProperty("X-G1-Client-Name",clientName());
-        if(token!=null&&!token.isEmpty())c.setRequestProperty("Authorization","Bearer "+token);
-        if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
-        int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();String response=read(in);c.disconnect();JSONObject result=new JSONObject(response);
-        if(code>=400||!result.optBoolean("ok",true))throw new Exception(result.optString("error","HTTP "+code));return result;
+        HttpURLConnection c=(HttpURLConnection)new URL(url).openConnection();
+        try{
+            c.setConnectTimeout(connectTimeout);c.setReadTimeout(readTimeout);c.setRequestMethod(method);c.setUseCaches(false);c.setRequestProperty("Connection","keep-alive");
+            c.setRequestProperty("X-G1-Client-Id",clientId());c.setRequestProperty("X-G1-Client-Name",clientName());
+            if(token!=null&&!token.isEmpty())c.setRequestProperty("Authorization","Bearer "+token);
+            if(body!=null){c.setDoOutput(true);c.setRequestProperty("Content-Type","application/json");byte[] bytes=body.toString().getBytes(StandardCharsets.UTF_8);try(OutputStream out=c.getOutputStream()){out.write(bytes);}}
+            int code=c.getResponseCode();InputStream in=code<400?c.getInputStream():c.getErrorStream();
+            if(in==null)throw new Exception("HTTP "+code+" returned no response body");
+            JSONObject result=new JSONObject(read(in));
+            if(code>=400||!result.optBoolean("ok",true))throw new Exception(result.optString("error","HTTP "+code));
+            return result;
+        }finally{c.disconnect();}
     }
     private String clientId(){String id=getPreferences(MODE_PRIVATE).getString("g1ClientId","");if(id.isEmpty()){id=UUID.randomUUID().toString();getPreferences(MODE_PRIVATE).edit().putString("g1ClientId",id).apply();}return id;}
     private String clientName(){String manufacturer=Build.MANUFACTURER==null?"":Build.MANUFACTURER.trim();String model=Build.MODEL==null?"Android phone":Build.MODEL.trim();if(manufacturer.isEmpty()||model.toLowerCase().startsWith(manufacturer.toLowerCase()))return model;return manufacturer+" "+model;}

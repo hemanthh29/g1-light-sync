@@ -274,6 +274,25 @@ def action(data):
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                     start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
             return {'ok': True, 'message': 'Music reactive started', 'pid': proc.pid, 'status': status()}
+        if command == 'animate':
+            name = str(data.get('name', ''))
+            if name not in ('color_flow', 'aurora', 'breathe', 'comet', 'ember'):
+                raise ValueError('Unknown app lighting effect')
+            color = str(data.get('color', '4c8dff')).strip().lstrip('#')
+            if not re.fullmatch(r'[0-9a-fA-F]{6}', color):
+                raise ValueError('Effect color must be a six-digit RGB value')
+            settings = read_json(GUI_CONFIG, {})
+            leds = int(settings.get('leds', 94))
+            fps = int(settings.get('fps', 20))
+            if not 1 <= leds <= 254 or not 1 <= fps <= 60:
+                raise ValueError('Invalid LED count or effect frame rate in desktop settings')
+            terminate_active()
+            proc = subprocess.Popen(cli('--proto', 'sync', '--leds', leds, 'animate', name,
+                                        '--fps', fps, '--color', color.lower()),
+                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                    start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
+            label = name.replace('_', ' ').title()
+            return {'ok': True, 'message': f'{label} started', 'pid': proc.pid, 'status': status()}
         if command == 'brightness':
             value = max(5, min(255, int(data.get('value', 180))))
             previous = terminate_active()
