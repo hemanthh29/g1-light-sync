@@ -53,7 +53,7 @@ Captures the computer's PipeWire playback mix, so no microphone is needed. Selec
 - **Treble:** emphasizes high-frequency energy and transients.
 - **Voice emphasis:** emphasizes energy in a vocal-like frequency range. It does not isolate or identify vocals.
 
-Combined mode uses the current perimeter counts in the GUI. Zone colors are saved with the desktop preferences and are used in combined and single-zone modes. Press **Stop live mode** to stop music capture and LED updates.
+Combined mode uses the current perimeter counts in the GUI. Zone colors are saved with the desktop preferences and are used in combined and single-zone modes. Starting another live mode while one is active stops the current mode and switches to the selected one; the start controls remain available.
 
 ### Lighting effects and controls
 

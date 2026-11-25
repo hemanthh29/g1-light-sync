@@ -423,6 +423,9 @@ class App(tk.Tk):
         self.configure(bg=BG)
         self.proc: subprocess.Popen | None = None
         self.active_mode = ""
+        self.pending_live_switch = None
+        self.live_stop_in_progress = False
+        self.external_stop_in_progress = False
         self.last_process_error = ""
         self.external_pid = None
         self.portal_proc = None
@@ -456,9 +459,8 @@ class App(tk.Tk):
             self._clear_notification_state()
             self.status.set("Another live mode is controlling the strip")
             self.status_dot.itemconfigure(1, fill=GREEN)
-            self.details.set("Stop the current mode to switch to music reactive or other effects")
+            self.details.set("Start another mode to switch, or stop live mode to end it")
             self.stop_btn.configure(command=self.stop_external_mode, state="normal")
-            self._set_manual_controls(False)
         else:
             self.after(350, self.read_info)
         self.after(600, self.refresh_diagnostics)
@@ -1330,7 +1332,6 @@ class App(tk.Tk):
         if color_swatch is not None and color_swatch.winfo_exists():
             color_swatch.delete("all")
             color_swatch.create_oval(3, 3, 25, 25, fill=color, outline=ACCENT, width=2)
-        self._update_music_color_swatch()
         self._refresh_palette_swatches()
         try:
             settings = json.loads(CONFIG.read_text())
@@ -1552,6 +1553,29 @@ class App(tk.Tk):
         for widget in self.manual_widgets:
             widget.configure(state=state)
 
+    def _switch_live_mode(self, callback, label):
+        external_pid = self._external_sync_pid()
+        if self.proc is None and external_pid is None:
+            return False
+        self.pending_live_switch = (callback, label)
+        self.details.set(f"Switching to {label}…")
+        if self.proc is not None:
+            if not self.live_stop_in_progress:
+                self.stop_sync(switching=True)
+        else:
+            self.external_pid = external_pid
+            if not self.external_stop_in_progress:
+                self.stop_external_mode(switching=True)
+        return True
+
+    def _resume_live_switch(self):
+        pending = self.pending_live_switch
+        self.pending_live_switch = None
+        if pending is not None:
+            callback, label = pending
+            self.details.set(f"Starting {label}…")
+            self.after(0, callback)
+
     def _external_sync_pid(self):
         # Also find a live mode started by an older GUI instance, even when its
         # pid file is stale or it is an app-generated animation.
@@ -1662,19 +1686,25 @@ class App(tk.Tk):
         if self.proc is not None and self.proc.poll() is not None:
             mode = self.active_mode or "Live mode"
             self.proc = None
+            self.live_stop_in_progress = False
             self.active_mode = ""
             self._clear_notification_state()
             self.start_btn.configure(state="normal")
             self.stop_btn.configure(state="disabled")
             self.stop_btn.configure(text="Stop live mode")
             self._set_manual_controls(True)
-            self.details.set(self.last_process_error or f"{mode} stopped")
-            self.last_process_error = ""
             if self._closing_after_stop:
+                self.pending_live_switch = None
                 self._stop_notification_monitor()
                 self.destroy()
                 return
-        elif self.external_pid is not None and self._external_sync_pid() is None:
+            if self.pending_live_switch is not None:
+                self._resume_live_switch()
+            else:
+                self.details.set(self.last_process_error or f"{mode} stopped")
+            self.last_process_error = ""
+        elif (self.external_pid is not None and self._external_sync_pid() is None
+              and not self.external_stop_in_progress):
             self.external_pid = None
             self.active_mode = ""
             self.status.set("Live mode stopped")
@@ -1725,6 +1755,7 @@ class App(tk.Tk):
 
     def start_sync(self):
         if self.proc is not None:
+            self._switch_live_mode(self._launch_sync, "Screen sync")
             return
         try:
             old_pid = self._external_sync_pid()
@@ -1734,7 +1765,6 @@ class App(tk.Tk):
                         parent=self):
                     return
                 os.kill(old_pid, signal.SIGINT)
-                self.start_btn.configure(state="disabled")
                 self.details.set("Switching control to this window…")
                 self.after(250, self._wait_for_external_sync)
                 return
@@ -1752,21 +1782,27 @@ class App(tk.Tk):
             return
         self._launch_sync()
 
-    def stop_external_mode(self, attempts=0):
+    def stop_external_mode(self, attempts=0, switching=False):
         if attempts == 0:
+            if not switching:
+                self.pending_live_switch = None
+            self.external_stop_in_progress = True
             pid = self._external_sync_pid()
             if pid is None:
+                self.external_stop_in_progress = False
                 self._external_mode_stopped()
                 return
             try:
                 os.kill(pid, signal.SIGINT)
             except ProcessLookupError:
+                self.external_stop_in_progress = False
                 self._external_mode_stopped()
                 return
             except OSError as exc:
+                self.external_stop_in_progress = False
+                self.pending_live_switch = None
                 messagebox.showerror("Could not stop live mode", str(exc), parent=self)
                 return
-            self.start_btn.configure(state="disabled")
             self.details.set("Stopping current live mode…")
         if self._external_sync_pid() is not None and attempts < 20:
             if attempts == 4:
@@ -1776,23 +1812,32 @@ class App(tk.Tk):
                         os.kill(pid, signal.SIGTERM)
                     except ProcessLookupError:
                         pass
-            self.after(250, lambda: self.stop_external_mode(attempts + 1))
+            self.after(250, lambda: self.stop_external_mode(attempts + 1, switching))
         elif self._external_sync_pid() is not None:
+            self.external_stop_in_progress = False
+            self.pending_live_switch = None
             self.start_btn.configure(state="normal")
             self.details.set("Live mode did not stop; stop its process from the terminal")
         else:
+            self.external_stop_in_progress = False
             self._external_mode_stopped()
 
     def _external_mode_stopped(self):
+        self.external_stop_in_progress = False
         self.external_pid = None
         self.active_mode = ""
         self._clear_notification_state()
         self.stop_btn.configure(text="Stop live mode", command=self.stop_sync, state="disabled")
         self._set_manual_controls(True)
-        self.details.set("Live mode stopped · choose Music Reactive or another effect")
         if self._closing_after_stop:
+            self.pending_live_switch = None
             self._stop_notification_monitor()
             self.destroy()
+            return
+        if self.pending_live_switch is not None:
+            self._resume_live_switch()
+        else:
+            self.details.set("Live mode stopped · choose Music Reactive or another effect")
 
     def _launch_sync(self):
         try:
@@ -1805,12 +1850,10 @@ class App(tk.Tk):
             self.proc = subprocess.Popen(args, cwd=ROOT, env=self._env(), stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
             threading.Thread(target=self._read_process, args=(self.proc,), daemon=True).start()
-            self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
             self.active_mode = "Screen sync"
             self._clear_notification_state()
             self.last_process_error = ""
-            self._set_manual_controls(False)
             self.details.set(f"Screen sync running · target {values['fps']} FPS")
         except Exception as exc:
             messagebox.showerror("Could not start sync", str(exc), parent=self)
@@ -1890,7 +1933,6 @@ class App(tk.Tk):
             if isinstance(color, list) and len(color) == 3:
                 self._set_color_preview("#" + "".join(f"{max(0, min(255, int(channel))):02x}" for channel in color))
             self._refresh_music_modes()
-            self._update_music_color_swatch()
             self._save(self._settings())
             self.diagnostic.set(f"Loaded profile: {self.profile_name.get()}")
         except (TypeError, ValueError) as exc:
@@ -1951,9 +1993,14 @@ class App(tk.Tk):
             return
         self.after(600, lambda: self._watch_monitor_enrollment(attempts + 1))
 
-    def stop_sync(self):
+    def stop_sync(self, switching=False):
+        if not switching:
+            self.pending_live_switch = None
         if self.proc is None:
             return
+        if self.live_stop_in_progress:
+            return
+        self.live_stop_in_progress = True
         proc = self.proc
         threading.Thread(target=self._stop_process_safely, args=(proc,), daemon=True).start()
         self.details.set("Stopping sync…")
@@ -1995,7 +2042,9 @@ class App(tk.Tk):
                 pass
 
     def apply_device_effect(self, effect_type, effect_index, label):
-        if self.proc is not None:
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(
+                lambda: self.apply_device_effect(effect_type, effect_index, label), label)
             return
         self.pending_device_effect = (effect_type, effect_index)
         self._set_manual_controls(False)
@@ -2003,7 +2052,8 @@ class App(tk.Tk):
         self._run_async(self._base_cmd() + ["effect", str(effect_type), str(effect_index)], "device_effect")
 
     def start_animation(self, name):
-        if self.proc is not None:
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(lambda: self.start_animation(name), name.replace("_", " ").title())
             return
         try:
             leds = int(self.leds.get())
@@ -2019,16 +2069,15 @@ class App(tk.Tk):
             self.active_mode = name.replace("_", " ").title()
             self._clear_notification_state()
             self.last_process_error = ""
-            self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
-            self._set_manual_controls(False)
-            self.details.set(f"{self.active_mode} running · target {fps} FPS · Stop live mode to return to controls")
+            self.details.set(f"{self.active_mode} running · target {fps} FPS · choose another mode to switch")
         except Exception as exc:
             self.proc = None
             messagebox.showerror("Could not start effect", str(exc), parent=self)
 
     def start_music(self):
-        if self.proc is not None:
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(self.start_music, "Music reactive")
             return
         try:
             leds = int(self.leds.get())
@@ -2061,9 +2110,7 @@ class App(tk.Tk):
             self.active_mode = f"Music · {self.audio_mode.get().title()}"
             self._clear_notification_state()
             self.last_process_error = ""
-            self.start_btn.configure(state="disabled")
             self.stop_btn.configure(state="normal")
-            self._set_manual_controls(False)
             self.details.set(f"Music reactive running · PipeWire system audio · target {fps} FPS")
         except Exception as exc:
             self.proc = None
@@ -2250,16 +2297,22 @@ class App(tk.Tk):
         hex_field.field.selection_range(0, "end")
 
     def set_color(self):
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(self.set_color, "solid color")
+            return
         r, g, b = (int(self.color[i:i + 2], 16) for i in (1, 3, 5))
         self._run_async(self._base_cmd() + ["color", str(r), str(g), str(b)], "solid_color")
 
     def turn_off(self):
-        if self.proc is not None:
-            self.stop_sync()
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(self.turn_off, "lights off")
             return
         self._run_async(self._base_cmd() + ["off"], "lights_off")
 
     def apply_brightness(self):
+        if self.proc is not None or self._external_sync_pid() is not None:
+            self._switch_live_mode(self.apply_brightness, "brightness update")
+            return
         value = self.brightness.get()
         try:
             settings = json.loads(GUI_CONFIG.read_text())
