@@ -16,7 +16,15 @@ The [full release history](https://github.com/hemanthh29/g1-light-sync/releases)
 
 ## Work in progress
 
-Music-reactive lighting is temporarily disabled in the unreleased source on `main` while it is redesigned and checked. This also disables the sound-reactive Pickup presets and music-start shortcuts/API actions. The existing release assets above are unchanged; they do not include this WIP change.
+Music Reactive is paused across Linux, Android, and iOS while it is redesigned and checked. These pre-releases disable the music controls and sound-reactive Pickup presets; the Linux build also rejects music-start commands from the CLI and phone relay. The stable releases in the table above remain unchanged.
+
+| Platform | WIP build | Download |
+| --- | --- | --- |
+| Linux | DEB `1.0.10-43+1` | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43-wip1) |
+| Android | APK `1.8.2` | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.2-wip) |
+| iOS | unsigned IPA `1.4` build 8 | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build8-wip) |
+
+Each pre-release includes a checksum file. No controller firmware is changed.
 
 ## License
 
@@ -31,8 +39,8 @@ Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `
 The Linux app is the host and owns the USB connection to the G1. It runs on Debian-based desktops and provides:
 
 - Screen sync that maps captured monitor colors to the strip perimeter, with adjustable edge sampling and smoothing. X11 capture is supported; on Wayland, select a monitor through the desktop screen-sharing portal.
-- Music-reactive lighting is work in progress and its desktop, CLI, phone-relay, and companion-app controls are disabled in the unreleased source.
-- Built-in Dynamic presets, plus the app-generated Color Flow, Aurora, Breathe, Comet, and Ember effects. Sound-reactive Pickup presets are also disabled while music reactive is WIP.
+- Music Reactive is a work in progress; controls are paused in the WIP builds linked above.
+- Built-in Dynamic presets, plus the app-generated Color Flow, Aurora, Breathe, Comet, and Ember effects. Sound-reactive Pickup presets are paused in the WIP builds.
 - Solid color, brightness, power, saved profiles, and device status controls. The live-mode stop button also turns the LEDs off.
 - Optional desktop notification lighting with five patterns and a chosen alert color. It runs only while the strip is off or in a steady solid-color state; active effects and sync modes are left running.
 - A tray icon and a phone relay that can stay on after the main window closes. The relay supports starting all five app-generated lighting effects from either mobile app.
@@ -44,9 +52,9 @@ The Linux app is the host and owns the USB connection to the G1. It runs on Debi
 
 The Android app controls the strip through the Linux host. It provides:
 
-- Screen sync controls. Music reactive is marked WIP and disabled in the unreleased source.
+- Screen sync and music-reactive controls. Music Reactive and Pickup controls are paused in the WIP build.
 - Preset colors, brightness, and a single Turn LEDs off control in the Now Playing card.
-- Built-in Dynamic presets, five app-generated effects, and saved laptop profiles. Sound-reactive Pickup presets are disabled while music reactive is WIP.
+- Built-in Dynamic and Pickup presets, five app-generated effects, and saved laptop profiles. Pickup is paused in the WIP build.
 - Automatic laptop discovery and pairing over the same Wi-Fi, with no IP address entry; it can also use the USB debugging connection when configured. Lighting mode and steady-state status refresh automatically, and Wi-Fi reconnection retries continue if the link briefly drops.
 - On Android 15 and later, the screen insets keep the app header and controls clear of the status and navigation bars.
 
@@ -56,9 +64,9 @@ The Android app controls the strip through the Linux host. It provides:
 
 The iPhone app uses Bonjour to find the laptop on the local network, with no IP address entry. It provides:
 
-- Screen sync controls and a single Turn LEDs off button in the Now Playing card. Music reactive is marked WIP and disabled in the unreleased source.
-- Brightness and color presets, built-in Dynamic presets, five app-generated effects, and saved laptop profiles. Sound-reactive Pickup presets are disabled while music reactive is WIP.
-- Siri Shortcuts for starting Screen Sync and stopping the active effect.
+- Screen sync and music-reactive controls, plus a single Turn LEDs off button in the Now Playing card. Music Reactive and Pickup controls are paused in the WIP build.
+- Brightness and color presets, built-in Dynamic and Pickup presets, five app-generated effects, and saved laptop profiles.
+- Siri Shortcuts for starting Screen Sync, starting Music Reactive, and stopping the active effect in the stable build; the WIP build removes Music Reactive.
 - One-time pairing with a laptop code; the saved access token is kept in the iOS Keychain.
 - Lighting mode and steady-state status refresh automatically while the app is open.
 
