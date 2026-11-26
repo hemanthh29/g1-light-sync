@@ -2,29 +2,21 @@
 
 **G1 Light Sync** is an unofficial companion for the **Mitsuko Phantom G1** LED strip. It is an independent project and is not affiliated with or endorsed by Mitsuko. The Linux desktop app connects to the strip over USB and runs screen capture, effects, and a local phone relay. The Android and iOS companion apps control that laptop over the same Wi-Fi network, so the phone does not need to connect directly to the strip.
 
-This public repository contains the source projects for all three platforms. Installable files are published as **separate GitHub Releases** for Linux, Android, and iOS. The release history keeps the latest stable build and three previous stable builds for each platform, along with the current WIP builds.
+This public repository contains the source projects for all three platforms. Installable files are published as **separate GitHub Releases** for Linux, Android, and iOS. Only the current release for each platform is published; older release downloads and tags are removed when superseded.
 
-## Latest stable downloads
+## Latest downloads
 
-| Platform | Latest build | Download | Checksum |
+| Platform | Current build | Download | Checksum |
 | --- | --- | --- | --- |
-| Linux | Debian package `1.0.10-43` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43) | `SHA256SUMS.txt` attached to the release |
-| Android | APK `1.8.1` (version code 10) | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.1) | `SHA256SUMS.txt` attached to the release |
-| iOS | IPA `1.4` (build 7) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build7) | `SHA256SUMS.txt` attached to the release |
+| Linux | WIP DEB `1.0.10-43+1` | [`.deb` release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43-wip1) | SHA-256 sidecar attached |
+| Android | WIP APK `1.8.2` | [APK release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.2-wip) | SHA-256 sidecar attached |
+| iOS | WIP unsigned IPA `1.4` (build 8) | [IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build8-wip) | SHA-256 sidecar attached |
 
-The [release history](https://github.com/hemanthh29/g1-light-sync/releases) contains the latest stable build and three previous stable builds for each platform. Release tags identify their platform: `deb-…` for Linux, `android-…` for Android, and `ios-…` for iOS. Current WIP releases are listed separately below.
+The [releases page](https://github.com/hemanthh29/g1-light-sync/releases) contains exactly these three platform releases. Release tags identify their platform: `deb-…` for Linux, `android-…` for Android, and `ios-…` for iOS. Source code history remains in the repository.
 
-## Work in progress
+## WIP status
 
-Music Reactive is paused across Linux, Android, and iOS while it is redesigned and checked. In all three WIP builds, the music mode and its controls are visibly unavailable, and sound-reactive Pickup presets are disabled. Screen Sync, Dynamic built-in presets, solid color, brightness and power controls, and the five app-generated effects remain available. The Linux WIP also rejects Music Reactive and Pickup requests from the CLI and phone relay. The stable releases in the table above remain unchanged. These are app changes only; they do not modify controller firmware.
-
-| Platform | WIP build | Download |
-| --- | --- | --- |
-| Linux | DEB `1.0.10-43+1` | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43-wip1) |
-| Android | APK `1.8.2` | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.2-wip) |
-| iOS | unsigned IPA `1.4` build 8 | [WIP pre-release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build8-wip) |
-
-Each WIP pre-release includes a `SHA256SUMS.txt` file. The earlier stable builds retain Music Reactive and sound-reactive Pickup; only the linked WIP builds disable those controls.
+The three downloads above are WIP builds. Music Reactive controls and sound-reactive Pickup presets are disabled across Linux, Android, and iOS while Music Reactive is redesigned. Screen Sync, Dynamic built-in presets, solid color, brightness and power controls, and the five app-generated effects remain available. Linux also rejects Music Reactive and Pickup requests from the CLI and phone relay. These are app changes only; they do not modify controller firmware. Each release includes a SHA-256 checksum sidecar.
 
 ## License
 
@@ -46,7 +38,7 @@ The Linux app is the host and owns the USB connection to the G1. It runs on Debi
 - A tray icon and a phone relay that can stay on after the main window closes. The relay can start all five app-generated lighting effects from either mobile app.
 - Connected phone names in the title card, plus live lighting status shared with the companion apps. Switching to Screen Sync or another mode on a phone updates the desktop status automatically.
 
-**Install:** download the `.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43), then install it with `sudo apt install ./g1-light-sync_1.0.10-43_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
+**Install:** download `g1-light-sync_1.0.10-43+1_all.deb` from the [Linux release](https://github.com/hemanthh29/g1-light-sync/releases/tag/deb-1.0.10-43-wip1), then install it with `sudo apt install ./g1-light-sync_1.0.10-43+1_all.deb`. Open **G1 Light Sync** from the desktop app menu and connect the G1 by USB. Package dependencies are declared in `deb/DEBIAN/control`.
 
 ### Android companion app
 
@@ -58,7 +50,7 @@ The Android app controls the strip through the Linux host. It provides:
 - Automatic laptop discovery and pairing over the same Wi-Fi, with no IP address entry; it can also use the USB debugging connection when configured. Lighting mode and steady-state status refresh automatically, and Wi-Fi reconnection retries continue if the link briefly drops.
 - On Android 15 and later, the screen insets keep the app header and controls clear of the status and navigation bars.
 
-**Install:** download the APK from the [Android release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.1). On the laptop, turn on the relay in **Phone Wi-Fi setup**. Keep both devices on the same local network, choose the laptop found by the app, and pair once with the code shown by the laptop.
+**Install:** download the APK from the [Android release](https://github.com/hemanthh29/g1-light-sync/releases/tag/android-1.8.2-wip). On the laptop, turn on the relay in **Phone Wi-Fi setup**. Keep both devices on the same local network, choose the laptop found by the app, and pair once with the code shown by the laptop.
 
 ### iOS companion app
 
@@ -70,7 +62,7 @@ The iPhone app uses Bonjour to find the laptop on the local network, with no IP 
 - One-time pairing with a laptop code; the saved access token is kept in the iOS Keychain.
 - Lighting mode and steady-state status refresh automatically while the app is open.
 
-The published IPA is unsigned. **Install:** download it from the [iOS release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build7), then sign and install it with SideStore or iLoader. Allow Local Network access when iOS asks. Keep the phone and laptop on the same Wi-Fi, and enable **Phone Wi-Fi setup** on the laptop. Free Apple Account signing expires and must be refreshed periodically.
+The published IPA is unsigned. **Install:** download it from the [iOS release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build8-wip), then sign and install it with SideStore or iLoader. Allow Local Network access when iOS asks. Keep the phone and laptop on the same Wi-Fi, and enable **Phone Wi-Fi setup** on the laptop. Free Apple Account signing expires and must be refreshed periodically.
 
 ## Phone connection setup
 
@@ -98,7 +90,7 @@ The relay sends control commands to the Linux app; the Linux host continues to h
 └── .github/workflows/            Manual Android APK and unsigned iOS build workflows
 ```
 
-Each platform has its own source folder and its own release. APK, IPA, and DEB files are release assets rather than bundled together in one download.
+Each platform has its own source folder and its own release. APK, IPA, and DEB files are release assets rather than bundled together in one download. The releases page contains only the current build for each platform.
 
 ## Build from source
 
@@ -129,8 +121,8 @@ The iOS project requires Xcode to build locally. Since the IPA is unsigned, the 
 
 Publish each platform independently and use its own version tag:
 
-- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-43`)
-- Android: `android-<version>` (for example, `android-1.8.1`)
-- iOS: `ios-<version>-build<build>` (for example, `ios-1.4-build7`)
+- Linux: `deb-<Debian-version>` (for example, `deb-1.0.10-43-wip1`)
+- Android: `android-<version>` (for example, `android-1.8.2-wip`)
+- iOS: `ios-<version>-build<build>` (for example, `ios-1.4-build8-wip`)
 
-Attach only that platform’s installable file and its `SHA256SUMS.txt` checksum to each release. Keep the release title explicit about platform and version. The public release history retains the latest stable release and three previous stable releases per platform, plus the current WIP pre-release.
+Attach only that platform’s installable file and a SHA-256 checksum sidecar to each release. Keep the release title explicit about platform and version. Publish only one release per platform; remove superseded release entries and tags.
