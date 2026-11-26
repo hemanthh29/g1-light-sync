@@ -16,7 +16,7 @@ The [releases page](https://github.com/hemanthh29/g1-light-sync/releases) contai
 
 ## WIP status
 
-The three downloads above are WIP builds. Music Reactive controls and sound-reactive Pickup presets are disabled across Linux, Android, and iOS while Music Reactive is redesigned. Screen Sync, Dynamic built-in presets, solid color, brightness and power controls, and the five app-generated effects remain available. Linux also rejects Music Reactive and Pickup requests from the CLI and phone relay. These are app changes only; they do not modify controller firmware. Each release includes a SHA-256 checksum sidecar.
+The three downloads above are WIP builds. Music Reactive controls and sound-reactive Pickup presets are disabled across Linux, Android, and iOS while Music Reactive is redesigned. Screen Sync, Dynamic built-in presets, solid color, brightness and power controls, and the five app-generated effects remain available. Linux also rejects Music Reactive and Pickup requests from the CLI and phone relay.  Each release includes a SHA-256 checksum sidecar.
 
 ## License
 
