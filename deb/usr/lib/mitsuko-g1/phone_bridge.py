@@ -301,8 +301,6 @@ def action(data):
             effect_id = int(data.get('id', 2)); param = int(data.get('param', 0))
             if effect_id not in (2,3) or not 0 <= param <= 6:
                 raise ValueError('Unsupported effect')
-            if effect_id == 3:
-                raise ValueError('Sound-reactive Pickup presets are temporarily unavailable while Music Reactive is under redesign.')
             terminate_active()
             return {'ok': True, 'message': run_command(cli('effect', effect_id, param)), 'status': status()}
         if command == 'off':

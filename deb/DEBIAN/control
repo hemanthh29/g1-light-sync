@@ -1,5 +1,5 @@
 Package: mitsuko-g1
-Version: 1.0.10-43+1
+Version: 1.0.10-43+2
 Section: utils
 Priority: optional
 Architecture: all
@@ -9,4 +9,4 @@ Maintainer: Hemanth Gamasu <hemanthh29@users.noreply.github.com>
 Description: G1 Light Sync unofficial companion for Mitsuko Phantom G1
  Independent desktop controls for the Phantom G1, including USB HID control, built-in
  firmware effects, screen sync, and paired phone control over Wi-Fi or USB, including
- iOS Bonjour discovery. Music reactive and sound-reactive Pickup controls are work in progress.
+ iOS Bonjour discovery. Music reactive is work in progress; built-in sound-reactive Pickup presets remain available.

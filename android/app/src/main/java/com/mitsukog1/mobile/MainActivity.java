@@ -167,7 +167,7 @@ public class MainActivity extends Activity {
 
         section(root,"LIGHTING EFFECTS","Tap once to apply.");
         effectGroup(root,"Dynamic · built in",2); gap(root,8);
-        effectGroup(root,"Pickup · sound reactive · WIP",3); gap(root,8);
+        effectGroup(root,"Pickup · sound reactive · built in",3); gap(root,8);
         root.addView(label("APP EFFECTS",11,GREEN,true)); gap(root,8);
         String[] appEffects={"Color Flow","Aurora","Breathe","Comet","Ember"};
         for(int start=0;start<appEffects.length;start+=3){
@@ -196,8 +196,7 @@ public class MainActivity extends Activity {
                 final int preset=n-1; Button b=button(title.startsWith("Dynamic")?"Dynamic "+n:"Pickup "+n,false);
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1); if(n>start)p.leftMargin=dp(6);
                 fx.addView(b,p);
-                if(effectId==3){b.setEnabled(false);b.setAlpha(.5f);b.setContentDescription("Pickup preset unavailable while Music Reactive is under redesign");}
-                else b.setOnClickListener(v->send("effect",jsonPair("id",effectId,"param",preset)));
+                b.setOnClickListener(v->send("effect",jsonPair("id",effectId,"param",preset)));
             }
             root.addView(fx); gap(root,6);
         }

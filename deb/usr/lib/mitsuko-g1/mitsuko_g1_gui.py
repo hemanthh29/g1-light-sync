@@ -1557,7 +1557,7 @@ class App(tk.Tk):
         ttk.Label(device, text="DEVICE PRESETS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
         self._effect_group(device, "Dynamic · built in", [(f"Dynamic {i}", 2, i - 1) for i in range(1, 8)])
         ttk.Separator(device).pack(fill="x", pady=16)
-        self._effect_group(device, "Pickup · sound reactive · work in progress", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
+        self._effect_group(device, "Pickup · sound reactive · built in", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
         software = self._card(page, padding=16)
         software.pack(fill="x", pady=(0, GAP))
         ttk.Label(software, text="APP EFFECTS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
@@ -1717,19 +1717,15 @@ class App(tk.Tk):
         row = ttk.Frame(group, style="Card.TFrame")
         row.pack(fill="x")
         for index, (label, effect_type, effect_index) in enumerate(entries):
-            is_audio_reactive = effect_type == 3
             button = RoundedButton(row, text=label,
                                 command=lambda t=effect_type, i=effect_index, n=label: self.apply_device_effect(t, i, n),
-                                state="disabled" if is_audio_reactive else "normal")
+                                state="normal")
             column_count = len(entries)
             button.grid(row=0, column=index, sticky="ew",
                         padx=(0, 8) if index < column_count - 1 else 0)
             row.columnconfigure(index, weight=1, uniform=title)
             self.effect_buttons.append(button)
-            if is_audio_reactive:
-                self.music_wip_widgets.append(button)
-            else:
-                self.manual_widgets.append(button)
+            self.manual_widgets.append(button)
 
     def _software_effect_group(self, parent):
         group = ttk.Frame(parent, style="Card.TFrame")
@@ -2383,9 +2379,6 @@ class App(tk.Tk):
                 pass
 
     def apply_device_effect(self, effect_type, effect_index, label):
-        if effect_type == 3:
-            self.details.set("Sound-reactive Pickup presets are unavailable while Music Reactive is work in progress.")
-            return
         if self.proc is not None or self._external_sync_pid() is not None:
             self._switch_live_mode(
                 lambda: self.apply_device_effect(effect_type, effect_index, label), label)

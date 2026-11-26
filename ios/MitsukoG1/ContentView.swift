@@ -217,7 +217,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 11) {
             sectionTitle("LIGHTING EFFECTS", subtitle: "14 built-in presets plus five app effects.")
             effectPresetGrid("Dynamic · built in", effectID: 2)
-            effectPresetGrid("Pickup · sound reactive · WIP", effectID: 3)
+            effectPresetGrid("Pickup · sound reactive · built in", effectID: 3)
             Text("APP EFFECTS").font(.caption.weight(.bold)).tracking(1.2).foregroundStyle(Palette.green)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(["Color Flow", "Aurora", "Breathe", "Comet", "Ember"], id: \.self) { name in
@@ -238,8 +238,6 @@ struct ContentView: View {
                     actionButton("\(effectID == 2 ? "Dynamic" : "Pickup") \(number)", filled: false) {
                         Task { await model.send("effect", fields: ["id": effectID, "param": number - 1]) }
                     }
-                    .disabled(effectID == 3)
-                    .opacity(effectID == 3 ? 0.5 : 1)
                 }
             }
         }

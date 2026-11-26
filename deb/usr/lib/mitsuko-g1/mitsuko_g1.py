@@ -952,8 +952,6 @@ def main():
 
     if a.cmd == "music":
         ap.error("Music reactive is temporarily unavailable while it is under redesign (work in progress).")
-    if a.cmd == "effect" and a.id == 3:
-        ap.error("Pickup sound-reactive presets are temporarily unavailable while Music Reactive is under redesign.")
 
     g = G1(a.path, a.order, a.verbose, a.proto, a.chunk)
     inf = g.info()
