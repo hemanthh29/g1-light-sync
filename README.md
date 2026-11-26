@@ -1,6 +1,6 @@
 # G1 Light Sync
 
-**G1 Light Sync** is an unofficial companion for the **Mitsuko Phantom G1** LED strip. It is an independent project and is not affiliated with or endorsed by Mitsuko. The Linux desktop app connects to the strip over USB and runs screen capture, music-reactive lighting, effects, and a local phone relay. The Android and iOS companion apps control that laptop over the same Wi-Fi network, so the phone does not need to connect directly to the strip.
+**G1 Light Sync** is an unofficial companion for the **Mitsuko Phantom G1** LED strip. It is an independent project and is not affiliated with or endorsed by Mitsuko. The Linux desktop app connects to the strip over USB and runs screen capture, effects, and a local phone relay. The Android and iOS companion apps control that laptop over the same Wi-Fi network, so the phone does not need to connect directly to the strip.
 
 This public repository contains the source projects for all three platforms. Installable files are published as **separate GitHub Releases** for Linux, Android, and iOS; the newest release for each platform is listed below, and earlier versions remain available in the release history.
 
@@ -13,6 +13,10 @@ This public repository contains the source projects for all three platforms. Ins
 | iOS | IPA `1.4` (build 7) | [unsigned IPA release](https://github.com/hemanthh29/g1-light-sync/releases/tag/ios-1.4-build7) | `SHA256SUMS.txt` attached to the release |
 
 The [full release history](https://github.com/hemanthh29/g1-light-sync/releases) keeps older builds. Release tags identify their platform: `deb-…` for Linux, `android-…` for Android, and `ios-…` for iOS.
+
+## Work in progress
+
+Music-reactive lighting is temporarily disabled in the unreleased source on `main` while it is redesigned and checked. This also disables the sound-reactive Pickup presets and music-start shortcuts/API actions. The existing release assets above are unchanged; they do not include this WIP change.
 
 ## License
 
@@ -27,8 +31,8 @@ Third-party components keep their own license terms. See [`LICENSE`](LICENSE), `
 The Linux app is the host and owns the USB connection to the G1. It runs on Debian-based desktops and provides:
 
 - Screen sync that maps captured monitor colors to the strip perimeter, with adjustable edge sampling and smoothing. X11 capture is supported; on Wayland, select a monitor through the desktop screen-sharing portal.
-- Music-reactive lighting. Combined now uses a slow relative loudness envelope for the song’s quiet and loud sections plus a separate broadband beat pulse shared across all perimeter zones; it does not split audio into frequency bands. Bass, Treble, and Voice remain optional focused modes. Combined uses custom colors for the bottom, sides, and top of the strip.
-- Built-in Dynamic and Pickup presets, plus the app-generated Color Flow, Aurora, Breathe, Comet, and Ember effects.
+- Music-reactive lighting is work in progress and its desktop, CLI, phone-relay, and companion-app controls are disabled in the unreleased source.
+- Built-in Dynamic presets, plus the app-generated Color Flow, Aurora, Breathe, Comet, and Ember effects. Sound-reactive Pickup presets are also disabled while music reactive is WIP.
 - Solid color, brightness, power, saved profiles, and device status controls. The live-mode stop button also turns the LEDs off.
 - Optional desktop notification lighting with five patterns and a chosen alert color. It runs only while the strip is off or in a steady solid-color state; active effects and sync modes are left running.
 - A tray icon and a phone relay that can stay on after the main window closes. The relay supports starting all five app-generated lighting effects from either mobile app.
@@ -40,9 +44,9 @@ The Linux app is the host and owns the USB connection to the G1. It runs on Debi
 
 The Android app controls the strip through the Linux host. It provides:
 
-- Screen sync and music-reactive controls, including the four music modes.
+- Screen sync controls. Music reactive is marked WIP and disabled in the unreleased source.
 - Preset colors, brightness, and a single Turn LEDs off control in the Now Playing card.
-- The built-in Dynamic and Pickup presets, five app-generated effects, and saved laptop profiles.
+- Built-in Dynamic presets, five app-generated effects, and saved laptop profiles. Sound-reactive Pickup presets are disabled while music reactive is WIP.
 - Automatic laptop discovery and pairing over the same Wi-Fi, with no IP address entry; it can also use the USB debugging connection when configured. Lighting mode and steady-state status refresh automatically, and Wi-Fi reconnection retries continue if the link briefly drops.
 - On Android 15 and later, the screen insets keep the app header and controls clear of the status and navigation bars.
 
@@ -52,9 +56,9 @@ The Android app controls the strip through the Linux host. It provides:
 
 The iPhone app uses Bonjour to find the laptop on the local network, with no IP address entry. It provides:
 
-- Screen sync and music-reactive controls, plus a single Turn LEDs off button in the Now Playing card.
-- Brightness and color presets, built-in Dynamic and Pickup presets, five app-generated effects, and saved laptop profiles.
-- Siri Shortcuts for starting Screen Sync, starting Music Reactive, and stopping the active effect.
+- Screen sync controls and a single Turn LEDs off button in the Now Playing card. Music reactive is marked WIP and disabled in the unreleased source.
+- Brightness and color presets, built-in Dynamic presets, five app-generated effects, and saved laptop profiles. Sound-reactive Pickup presets are disabled while music reactive is WIP.
+- Siri Shortcuts for starting Screen Sync and stopping the active effect.
 - One-time pairing with a laptop code; the saved access token is kept in the iOS Keychain.
 - Lighting mode and steady-state status refresh automatically while the app is open.
 
@@ -67,7 +71,7 @@ The published IPA is unsigned. **Install:** download it from the [iOS release](h
 3. Connect the phone and laptop to the same local network. On iOS, allow the Local Network permission prompt.
 4. Open the companion app, select the discovered laptop, and enter the one-time pairing code. The app saves its pairing token for future connections.
 
-The relay sends control commands to the Linux app; the Linux host continues to handle the G1 USB device and screen or audio capture.
+The relay sends control commands to the Linux app; the Linux host continues to handle the G1 USB device and screen capture.
 
 ## Repository layout
 

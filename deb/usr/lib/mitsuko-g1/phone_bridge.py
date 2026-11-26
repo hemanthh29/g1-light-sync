@@ -264,16 +264,7 @@ def action(data):
                                     start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
             return {'ok': True, 'message': 'Screen sync started', 'pid': proc.pid, 'status': status()}
         if command == 'music':
-            mode = str(data.get('mode', 'combined'))
-            if mode not in ('combined','bass','treble','voice'):
-                raise ValueError('Unknown music mode')
-            settings = read_json(GUI_CONFIG, {})
-            terminate_active()
-            proc = subprocess.Popen(cli('--leds', int(settings.get('leds', 94)), 'music', '--mode', mode,
-                                        '--sensitivity', float(settings.get('audio_sensitivity', 1.5))),
-                                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                    start_new_session=True, env={**os.environ, 'WAYLAND_SCREENSHOT_BIN': str(HELPER)})
-            return {'ok': True, 'message': 'Music reactive started', 'pid': proc.pid, 'status': status()}
+            raise ValueError('Music reactive is temporarily unavailable while it is under redesign (work in progress).')
         if command == 'animate':
             name = str(data.get('name', ''))
             if name not in ('color_flow', 'aurora', 'breathe', 'comet', 'ember'):
@@ -310,6 +301,8 @@ def action(data):
             effect_id = int(data.get('id', 2)); param = int(data.get('param', 0))
             if effect_id not in (2,3) or not 0 <= param <= 6:
                 raise ValueError('Unsupported effect')
+            if effect_id == 3:
+                raise ValueError('Sound-reactive Pickup presets are temporarily unavailable while Music Reactive is under redesign.')
             terminate_active()
             return {'ok': True, 'message': run_command(cli('effect', effect_id, param)), 'status': status()}
         if command == 'off':

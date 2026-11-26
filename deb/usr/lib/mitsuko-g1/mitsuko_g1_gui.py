@@ -433,6 +433,7 @@ class App(tk.Tk):
         self._closing_after_stop = False
         self.effect_buttons = []
         self.manual_widgets = []
+        self.music_wip_widgets = []
         self.nav_buttons = {}
         self.pages = {}
         self.messages: queue.Queue[tuple[str, str]] = queue.Queue()
@@ -941,7 +942,7 @@ class App(tk.Tk):
         sidebar.pack_propagate(False)
         sidebar.configure(width=220)
         ttk.Label(sidebar, text="DEVICE", style="Muted.Card.TLabel").pack(anchor="w", padx=9, pady=(0, 9))
-        nav_items = (("Music", "Music reactive"), ("Screen", "Screen sync"),
+        nav_items = (("Music", "Music reactive · WIP"), ("Screen", "Screen sync"),
                      ("Effects", "Lighting effects"), ("Controls", "Quick controls"))
         for key, label in nav_items:
             button = RoundedButton(sidebar, text=label, style="Nav.TButton",
@@ -950,7 +951,7 @@ class App(tk.Tk):
             self.nav_buttons[key] = button
         ttk.Separator(sidebar).pack(fill="x", pady=(15, 12))
         ttk.Label(sidebar, text="94 LEDS  ·  USB HID", style="Muted.Card.TLabel").pack(anchor="w", padx=9)
-        ttk.Label(sidebar, text="Music uses PipeWire playback", style="Muted.Card.TLabel", wraplength=145).pack(anchor="w", padx=9, pady=(7, 0))
+        ttk.Label(sidebar, text="Music reactive · work in progress", style="Muted.Card.TLabel", wraplength=145).pack(anchor="w", padx=9, pady=(7, 0))
 
         content_view = ttk.Frame(body, style="Root.TFrame")
         content_view.pack(side="left", fill="both", expand=True)
@@ -1223,7 +1224,13 @@ class App(tk.Tk):
         ttk.Label(heading, text=subtitle, style="PageSub.TLabel").pack(anchor="w", pady=(4, 0))
 
     def _build_music_page(self, page):
-        self._page_heading(page, "Music ambience", "Shape the full-mix response and set colors around the monitor perimeter.")
+        self._page_heading(page, "Music ambience", "Music reactive is temporarily unavailable while it is redesigned and checked.")
+        work_in_progress = self._card(page, padding=12)
+        work_in_progress.pack(fill="x", pady=(0, GAP))
+        ttk.Label(work_in_progress, text="WORK IN PROGRESS", style="Muted.Card.TLabel").pack(anchor="w")
+        ttk.Label(work_in_progress,
+                  text="Music reactive controls are disabled for now. Screen sync, lighting effects, solid color, and quick controls are still available.",
+                  style="Card.TLabel", wraplength=850).pack(anchor="w", pady=(5, 0))
         columns = ttk.Frame(page, style="Root.TFrame")
         columns.pack(fill="both", expand=True)
         columns.columnconfigure(0, weight=7, uniform="music")
@@ -1267,13 +1274,13 @@ class App(tk.Tk):
         for index, (label, value) in enumerate((("Full mix", "combined"), ("Bass", "bass"),
                                                  ("Treble", "treble"), ("Voice · approx.", "voice"))):
             button = RoundedButton(mode_grid, text=label, style="Mode.TButton",
-                                   command=lambda v=value: self._select_music_mode(v))
+                                   command=lambda v=value: self._select_music_mode(v), state="disabled")
             button.grid(row=index // 2, column=index % 2, sticky="ew",
                         padx=(0, 8) if index % 2 == 0 else 0, pady=(0, 8) if index < 2 else 0)
             mode_grid.columnconfigure(index % 2, weight=1, uniform="musicmode")
             button.mode_value = value
             self.music_mode_buttons.append(button)
-            self.manual_widgets.append(button)
+            self.music_wip_widgets.append(button)
         self._refresh_music_modes()
 
         sensitivity_header = ttk.Frame(controls, style="Card.TFrame")
@@ -1283,10 +1290,11 @@ class App(tk.Tk):
         self.audio_sensitivity_scale = ThemedScale(controls, from_=0.2, to=5.0, variable=self.audio_sensitivity,
                                                   command=lambda value: self.audio_sensitivity_value.set(f"{float(value):.1f}×"))
         self.audio_sensitivity_scale.pack(fill="x", pady=(2, 12))
-        self.manual_widgets.append(self.audio_sensitivity_scale)
-        self.music_btn = RoundedButton(controls, text="Start music reactive", style="Accent.TButton", command=self.start_music)
+        self.music_wip_widgets.append(self.audio_sensitivity_scale)
+        self.music_btn = RoundedButton(controls, text="Music reactive · WIP", style="Accent.TButton",
+                                       command=self.start_music, state="disabled")
         self.music_btn.pack(fill="x")
-        self.manual_widgets.append(self.music_btn)
+        self.music_wip_widgets.append(self.music_btn)
         color_card = self._card(controls_column, padding=14)
         color_card.pack(fill="x", pady=(GAP, 0))
         ttk.Label(color_card, text="PERIMETER COLORS", style="Muted.Card.TLabel").pack(anchor="w")
@@ -1296,15 +1304,15 @@ class App(tk.Tk):
             zone_row = ttk.Frame(color_card, style="Card.TFrame")
             zone_row.pack(fill="x", pady=3)
             swatch = tk.Canvas(zone_row, width=26, height=26, bg=PANEL, highlightthickness=0,
-                               cursor="hand2")
+                               cursor="arrow")
             swatch.pack(side="left", padx=(0, 8))
-            swatch.bind("<Button-1>", lambda _e, name=zone: self._choose_music_zone_color(name))
             ttk.Label(zone_row, text=label, style="Card.TLabel").pack(side="left", fill="x", expand=True)
             button = RoundedButton(zone_row, text="Choose…", style="Mode.TButton",
-                                   command=lambda name=zone: self._choose_music_zone_color(name))
+                                   command=lambda name=zone: self._choose_music_zone_color(name),
+                                   state="disabled")
             button.pack(side="right")
             self.music_zone_color_rows[zone] = (swatch, button)
-            self.manual_widgets.extend((swatch, button))
+            self.music_wip_widgets.append(button)
             self._update_music_zone_swatch(zone)
         bright_header = ttk.Frame(color_card, style="Card.TFrame")
         bright_header.pack(fill="x", pady=(14, 0))
@@ -1549,7 +1557,7 @@ class App(tk.Tk):
         ttk.Label(device, text="DEVICE PRESETS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
         self._effect_group(device, "Dynamic · built in", [(f"Dynamic {i}", 2, i - 1) for i in range(1, 8)])
         ttk.Separator(device).pack(fill="x", pady=16)
-        self._effect_group(device, "Pickup · sound reactive, built in", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
+        self._effect_group(device, "Pickup · sound reactive · work in progress", [(f"Pickup {i}", 3, i - 1) for i in range(1, 8)])
         software = self._card(page, padding=16)
         software.pack(fill="x", pady=(0, GAP))
         ttk.Label(software, text="APP EFFECTS", style="Muted.Card.TLabel").pack(anchor="w", pady=(0, 12))
@@ -1709,14 +1717,19 @@ class App(tk.Tk):
         row = ttk.Frame(group, style="Card.TFrame")
         row.pack(fill="x")
         for index, (label, effect_type, effect_index) in enumerate(entries):
+            is_audio_reactive = effect_type == 3
             button = RoundedButton(row, text=label,
-                                command=lambda t=effect_type, i=effect_index, n=label: self.apply_device_effect(t, i, n))
+                                command=lambda t=effect_type, i=effect_index, n=label: self.apply_device_effect(t, i, n),
+                                state="disabled" if is_audio_reactive else "normal")
             column_count = len(entries)
             button.grid(row=0, column=index, sticky="ew",
                         padx=(0, 8) if index < column_count - 1 else 0)
             row.columnconfigure(index, weight=1, uniform=title)
             self.effect_buttons.append(button)
-            self.manual_widgets.append(button)
+            if is_audio_reactive:
+                self.music_wip_widgets.append(button)
+            else:
+                self.manual_widgets.append(button)
 
     def _software_effect_group(self, parent):
         group = ttk.Frame(parent, style="Card.TFrame")
@@ -1741,6 +1754,8 @@ class App(tk.Tk):
         state = "normal" if enabled else "disabled"
         for widget in self.manual_widgets:
             widget.configure(state=state)
+        for widget in self.music_wip_widgets:
+            widget.configure(state="disabled")
 
     def _switch_live_mode(self, callback, label):
         external_pid = self._external_sync_pid()
@@ -1836,7 +1851,7 @@ class App(tk.Tk):
             self.details.set(f"{label} running · status synced from connected devices")
             self.stop_btn.configure(state="normal", command=self.turn_off)
             self.start_btn.configure(text="Screen sync active" if mode == "screen" else "Switch to screen sync")
-            self.music_btn.configure(text="Music reactive active" if mode == "music" else "Switch to Music reactive")
+            self.music_btn.configure(text="Music reactive · WIP", state="disabled")
             return
 
         light_mode = light.get("mode")
@@ -1846,7 +1861,7 @@ class App(tk.Tk):
             self.active_mode = ""
             self.stop_btn.configure(state="normal" if can_turn_off else "disabled", command=self.turn_off)
         self.start_btn.configure(text="Start screen sync")
-        self.music_btn.configure(text="Start music reactive")
+        self.music_btn.configure(text="Music reactive · WIP", state="disabled")
 
         if light_mode == "off":
             self.details.set("LEDs off")
@@ -2163,7 +2178,7 @@ class App(tk.Tk):
         if self.pending_live_switch is not None:
             self._resume_live_switch()
         else:
-            self.details.set("Live mode stopped · choose Music Reactive or another effect")
+            self.details.set("Live mode stopped · choose Screen Sync or another effect")
 
     def _launch_sync(self):
         try:
@@ -2368,6 +2383,9 @@ class App(tk.Tk):
                 pass
 
     def apply_device_effect(self, effect_type, effect_index, label):
+        if effect_type == 3:
+            self.details.set("Sound-reactive Pickup presets are unavailable while Music Reactive is work in progress.")
+            return
         if self.proc is not None or self._external_sync_pid() is not None:
             self._switch_live_mode(
                 lambda: self.apply_device_effect(effect_type, effect_index, label), label)
@@ -2402,45 +2420,7 @@ class App(tk.Tk):
             messagebox.showerror("Could not start effect", str(exc), parent=self)
 
     def start_music(self):
-        if self.proc is not None or self._external_sync_pid() is not None:
-            self._switch_live_mode(self.start_music, "Music reactive")
-            return
-        try:
-            leds = int(self.leds.get())
-            fps = int(self.fps.get())
-            sensitivity = float(self.audio_sensitivity.get())
-            counts = {side: int(var.get()) for side, var in self.edge.items()}
-            if not 1 <= leds <= 254 or not 1 <= fps <= 60:
-                raise ValueError("LED count must be 1–254 and FPS 1–60.")
-            if any(value < 0 for value in counts.values()) or sum(counts.values()) != leds:
-                raise ValueError(f"Perimeter counts must add up to {leds} LEDs.")
-            if not 0.2 <= sensitivity <= 5.0:
-                raise ValueError("Audio sensitivity must be between 0.2 and 5.0.")
-            settings = json.loads(GUI_CONFIG.read_text()) if GUI_CONFIG.exists() else {}
-            settings["audio_sensitivity"] = sensitivity
-            settings["audio_mode"] = self.audio_mode.get()
-            settings["counts"] = counts
-            settings["music_zone_colors"] = {zone: color.get() for zone, color in self.music_zone_colors.items()}
-            GUI_CONFIG.write_text(json.dumps(settings, indent=2) + "\n")
-            color = self.color.lstrip("#")
-            count_arg = ",".join(f"{side}={counts[side]}" for side in ("bottom", "left", "top", "right"))
-            zone_args = [option for zone in ("bass", "voice", "treble")
-                         for option in (f"--{zone}-color", self.music_zone_colors[zone].get().lstrip("#"))]
-            args = self._base_cmd() + ["--leds", str(leds), "music", "--fps", str(fps),
-                                      "--sensitivity", f"{sensitivity:.2f}",
-                                      "--mode", self.audio_mode.get(), "--color", color,
-                                      "--counts", count_arg] + zone_args
-            self.proc = subprocess.Popen(args, cwd=ROOT, env=self._env(), stdout=subprocess.PIPE,
-                                         stderr=subprocess.STDOUT, text=True, bufsize=1, start_new_session=True)
-            threading.Thread(target=self._read_process, args=(self.proc,), daemon=True).start()
-            self.active_mode = f"Music · {self.audio_mode.get().title()}"
-            self._clear_notification_state()
-            self.last_process_error = ""
-            self.stop_btn.configure(state="normal")
-            self.details.set(f"Music reactive running · PipeWire system audio · target {fps} FPS")
-        except Exception as exc:
-            self.proc = None
-            messagebox.showerror("Could not start music sync", str(exc), parent=self)
+        self.details.set("Music reactive is temporarily unavailable while it is redesigned and checked.")
 
     def choose_color(self, apply_to_strip=False, initial_color=None, on_select=None,
                      action_label=None, subtitle=None):

@@ -58,16 +58,6 @@ struct MitsukoScreenSyncIntent: AppIntent {
     }
 }
 
-struct MitsukoMusicIntent: AppIntent {
-    static var title: LocalizedStringResource = "Start Music Reactive Lighting"
-    static var description = IntentDescription("Start music reactive lighting for Mitsuko Phantom G1.")
-    static var openAppWhenRun = false
-
-    func perform() async throws -> some ReturnsValue<String> {
-        .result(value: try await MitsukoIntentClient.perform(action: "music", fields: ["mode": "combined"]))
-    }
-}
-
 struct MitsukoStopIntent: AppIntent {
     static var title: LocalizedStringResource = "Stop G1 Light Sync"
     static var description = IntentDescription("Stop the active Phantom G1 lighting effect.")
@@ -91,7 +81,6 @@ struct MitsukoLightsOffIntent: AppIntent {
 struct MitsukoShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(intent: MitsukoScreenSyncIntent(), phrases: ["Start screen sync with \(.applicationName)", "Turn on screen sync with \(.applicationName)"], shortTitle: "Screen Sync", systemImageName: "display")
-        AppShortcut(intent: MitsukoMusicIntent(), phrases: ["Start music reactive lighting with \(.applicationName)"], shortTitle: "Music Lighting", systemImageName: "music.note")
         AppShortcut(intent: MitsukoStopIntent(), phrases: ["Stop sync with \(.applicationName)"], shortTitle: "Stop Sync", systemImageName: "stop.fill")
         AppShortcut(intent: MitsukoLightsOffIntent(), phrases: ["Turn off lights with \(.applicationName)"], shortTitle: "Lights Off", systemImageName: "lightbulb.slash")
     }

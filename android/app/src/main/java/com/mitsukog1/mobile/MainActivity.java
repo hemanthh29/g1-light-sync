@@ -71,8 +71,11 @@ public class MainActivity extends Activity {
         if (intent == null) return;
         String action = intent.getStringExtra("mitsuko_action");
         if (action == null) return;
+        if ("music".equals(action)) {
+            Toast.makeText(this, "Music reactive is a work in progress and is temporarily unavailable.", Toast.LENGTH_LONG).show();
+            return;
+        }
         JSONObject fields = null;
-        if ("music".equals(action)) fields = json("mode", "combined");
         send(action, fields);
     }
 
@@ -141,7 +144,7 @@ public class MainActivity extends Activity {
         LinearLayout modes = row();
         modes.addView(modeTile("◉","Screen sync","Match the display", "screen"),new LinearLayout.LayoutParams(0,-2,1));
         View spacer = new View(this); modes.addView(spacer,lp(10,1));
-        modes.addView(modeTile("♫","Music reactive","Move with the sound", "music"),new LinearLayout.LayoutParams(0,-2,1));
+        modes.addView(modeTile("♫","Music reactive · WIP","Temporarily unavailable", ""),new LinearLayout.LayoutParams(0,-2,1));
         root.addView(modes); gap(root,22);
 
         section(root,"BRIGHTNESS","Set the strip intensity.");
@@ -164,7 +167,7 @@ public class MainActivity extends Activity {
 
         section(root,"LIGHTING EFFECTS","Tap once to apply.");
         effectGroup(root,"Dynamic · built in",2); gap(root,8);
-        effectGroup(root,"Pickup · sound reactive",3); gap(root,8);
+        effectGroup(root,"Pickup · sound reactive · WIP",3); gap(root,8);
         root.addView(label("APP EFFECTS",11,GREEN,true)); gap(root,8);
         String[] appEffects={"Color Flow","Aurora","Breathe","Comet","Ember"};
         for(int start=0;start<appEffects.length;start+=3){
@@ -192,13 +195,15 @@ public class MainActivity extends Activity {
             for(int n=start;n<Math.min(start+4,8);n++){
                 final int preset=n-1; Button b=button(title.startsWith("Dynamic")?"Dynamic "+n:"Pickup "+n,false);
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,dp(44),1); if(n>start)p.leftMargin=dp(6);
-                fx.addView(b,p); b.setOnClickListener(v->send("effect",jsonPair("id",effectId,"param",preset)));
+                fx.addView(b,p);
+                if(effectId==3){b.setEnabled(false);b.setAlpha(.5f);b.setContentDescription("Pickup preset unavailable while Music Reactive is under redesign");}
+                else b.setOnClickListener(v->send("effect",jsonPair("id",effectId,"param",preset)));
             }
             root.addView(fx); gap(root,6);
         }
     }
     private Button button(String text,boolean filled){Button b=new Button(this);b.setText(text);b.setAllCaps(false);b.setTextSize(13);b.setTypeface(Typeface.DEFAULT,Typeface.BOLD);b.setTextColor(filled?BG:TEXT);b.setBackground(shape(filled?GREEN:Color.rgb(35,54,47),14));b.setMinHeight(dp(42));b.setPadding(dp(12),0,dp(12),0);return b;}
-    private View modeTile(String icon,String title,String sub,String action){LinearLayout c=card(CARD); TextView i=label(icon,23,GREEN,true); c.addView(i); gap(c,9); c.addView(label(title,16,TEXT,true)); gap(c,4); c.addView(label(sub,11,MUTED,false)); c.setMinimumHeight(dp(145)); c.setOnClickListener(v->{if(action.equals("music"))send("music",json("mode","combined"));else send(action,null);}); return c;}
+    private View modeTile(String icon,String title,String sub,String action){LinearLayout c=card(CARD); TextView i=label(icon,23,GREEN,true); c.addView(i); gap(c,9); c.addView(label(title,16,TEXT,true)); gap(c,4); c.addView(label(sub,11,MUTED,false)); c.setMinimumHeight(dp(145)); if("screen".equals(action))c.setOnClickListener(v->send("screen",null));else{c.setEnabled(false);c.setAlpha(.55f);c.setContentDescription("Music reactive is work in progress and temporarily unavailable");} return c;}
     private void addColor(LinearLayout row,String hex,int[] rgb){TextView c=label("",1,TEXT,false); c.setGravity(Gravity.CENTER); GradientDrawable bg=shape(Color.rgb(rgb[0],rgb[1],rgb[2]),24);bg.setStroke(dp(2),Color.rgb(38,58,50));c.setBackground(bg);c.setContentDescription("Set color "+hex);LinearLayout.LayoutParams p=lp(39,39);p.rightMargin=dp(10);row.addView(c,p);c.setOnClickListener(v->send("color",json("rgb",new JSONArray().put(rgb[0]).put(rgb[1]).put(rgb[2]))));}
     private JSONObject json(String key,Object value){JSONObject o=new JSONObject();try{o.put(key,value);}catch(Exception ignored){}return o;}
     private JSONObject jsonPair(String k1,Object v1,String k2,Object v2){JSONObject o=json(k1,v1);try{o.put(k2,v2);}catch(Exception ignored){}return o;}

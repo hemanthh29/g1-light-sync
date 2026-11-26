@@ -48,11 +48,8 @@ struct ContentView: View {
                         modeTile(icon: "viewfinder", title: "Screen sync", subtitle: "Match your display") {
                             Task { await model.send("screen") }
                         }
-                        modeTile(icon: "waveform", title: "Music reactive", subtitle: "Move with the sound") {
-                            Task { await model.send("music", fields: ["mode": "combined"]) }
-                        }
+                        musicWorkInProgressTile
                     }
-                    musicModes
                     brightnessCard
                     colorSection
                     effectsSection
@@ -163,16 +160,17 @@ struct ContentView: View {
         }
     }
 
-    private var musicModes: some View {
-        HStack(spacing: 8) {
-            ForEach(["combined", "bass", "treble", "voice"], id: \.self) { mode in
-                Button(mode.capitalized) { Task { await model.send("music", fields: ["mode": mode]) } }
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Palette.text)
-                    .padding(.horizontal, 11).padding(.vertical, 9)
-                    .background(Palette.card, in: Capsule())
-            }
+    private var musicWorkInProgressTile: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Image(systemName: "waveform").font(.system(size: 23, weight: .bold)).foregroundStyle(Palette.muted)
+            Text("Music reactive · WIP").font(.system(size: 16, weight: .bold)).foregroundStyle(Palette.text)
+            Text("Temporarily paused while this feature is redesigned").font(.caption).foregroundStyle(Palette.muted)
         }
+        .frame(maxWidth: .infinity, minHeight: 145, alignment: .leading)
+        .padding(16)
+        .background(Palette.card, in: RoundedRectangle(cornerRadius: 20))
+        .opacity(0.6)
+        .accessibilityElement(children: .combine)
     }
 
     private var brightnessCard: some View {
@@ -219,7 +217,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 11) {
             sectionTitle("LIGHTING EFFECTS", subtitle: "14 built-in presets plus five app effects.")
             effectPresetGrid("Dynamic · built in", effectID: 2)
-            effectPresetGrid("Pickup · sound reactive", effectID: 3)
+            effectPresetGrid("Pickup · sound reactive · WIP", effectID: 3)
             Text("APP EFFECTS").font(.caption.weight(.bold)).tracking(1.2).foregroundStyle(Palette.green)
             LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
                 ForEach(["Color Flow", "Aurora", "Breathe", "Comet", "Ember"], id: \.self) { name in
@@ -240,6 +238,8 @@ struct ContentView: View {
                     actionButton("\(effectID == 2 ? "Dynamic" : "Pickup") \(number)", filled: false) {
                         Task { await model.send("effect", fields: ["id": effectID, "param": number - 1]) }
                     }
+                    .disabled(effectID == 3)
+                    .opacity(effectID == 3 ? 0.5 : 1)
                 }
             }
         }

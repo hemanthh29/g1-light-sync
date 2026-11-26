@@ -5,12 +5,6 @@
         </intent>
         <categories android:name="android.shortcut.conversation" />
     </shortcut>
-    <shortcut android:shortcutId="music_lighting" android:enabled="true" android:shortcutShortLabel="@string/shortcut_music_short" android:shortcutLongLabel="@string/shortcut_music_long">
-        <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
-            <extra android:name="mitsuko_action" android:value="music" />
-        </intent>
-        <categories android:name="android.shortcut.conversation" />
-    </shortcut>
     <shortcut android:shortcutId="stop_sync" android:enabled="true" android:shortcutShortLabel="@string/shortcut_stop_short" android:shortcutLongLabel="@string/shortcut_stop_long">
         <intent android:action="android.intent.action.VIEW" android:targetPackage="com.mitsukog1.mobile" android:targetClass="com.mitsukog1.mobile.MainActivity">
             <extra android:name="mitsuko_action" android:value="stop" />

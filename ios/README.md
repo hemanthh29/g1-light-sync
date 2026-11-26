@@ -2,7 +2,7 @@
 
 Native SwiftUI app and unofficial companion for the Mitsuko Phantom G1. It controls the lights through the Linux host over the same Wi-Fi network. It discovers the laptop through Bonjour (`_mitsukog1._tcp`), so no laptop address is typed. First-time pairing uses the laptop's one-time code; the app stores its access token in the iOS Keychain and reconnects automatically afterward.
 
-The app includes screen sync, music reactive modes, stop and lights off, brightness, color presets, lighting effects, and saved profiles. The phone talks directly to the laptop bridge; light control remains on the laptop.
+The app includes screen sync, stop and lights off, brightness, color presets, lighting effects, and saved profiles. Music reactive and the sound-reactive Pickup presets are marked work in progress and disabled in the unreleased source. The phone talks directly to the laptop bridge; light control remains on the laptop.
 
 The iPhone asks for Local Network access the first time it searches for the laptop. Allow that prompt. Both devices must be on the same Wi-Fi network, and the laptop's phone relay must be on in **Phone Wi-Fi setup**. Once enabled, the relay runs independently of the desktop window. Bonjour support on the laptop is provided by Avahi.
 
